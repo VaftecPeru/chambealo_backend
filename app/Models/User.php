@@ -3,90 +3,102 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
+use Tymon\JWTAuth\Contracts\JWTSubject;
 
-class User extends Authenticatable
+class User extends Authenticatable implements JWTSubject
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasFactory, Notifiable, SoftDeletes;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
+    protected $primaryKey = 'user_id';
+
     protected $fillable = [
-        'name',
+        'full_name',
         'email',
         'password',
-        'role_id',
-        'telefono',
-        'direccion',
-        'activo',
+        'role',
+        'status'
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
-    protected function casts(): array
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'registered_at' => 'datetime',
+    ];
+
+    // JWT Methods
+    public function getJWTIdentifier()
+    {
+        return $this->getKey();
+    }
+
+    public function getJWTCustomClaims()
     {
         return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-            'activo' => 'boolean',
+            'user_id' => $this->user_id,
+            'email' => $this->email,
+            'role' => $this->role,
+            'iss' => url('/'),
+            'iat' => now()->timestamp,
         ];
     }
 
-    /**
-     * Relación con Role
-     */
-    public function role()
+    // Mutator para password hashing
+    public function setPasswordAttribute($value)
     {
-        return $this->belongsTo(Role::class);
+        $this->attributes['password'] = bcrypt($value);
     }
 
-    /**
-     * Verificar si el usuario tiene un rol específico
-     */
-    public function hasRole($roleName)
+    // Relaciones
+    public function brands()
     {
-        return $this->role->nombre === $roleName;
+        return $this->hasMany(Brand::class, 'user_id');
     }
 
-    /**
-     * Verificar si el usuario es superadministrador
-     */
-    public function isSuperAdmin()
+    public function reviews()
     {
-        return $this->hasRole('superadministrador');
+        return $this->hasMany(Review::class, 'user_id');
     }
 
-    /**
-     * Verificar si el usuario es administrador o superadministrador
-     */
+    public function sentMessages()
+    {
+        return $this->hasMany(Message::class, 'sender_id');
+    }
+
+    public function receivedMessages()
+    {
+        return $this->hasMany(Message::class, 'received_id');
+    }
+
+    public function subscriptions()
+    {
+        return $this->hasMany(Subscription::class, 'user_id');
+    }
+
+    public function audits()
+    {
+        return $this->hasMany(Audit::class, 'performed_by');
+    }
+
+    // Helpers
     public function isAdmin()
     {
-        return $this->hasRole('administrador') || $this->isSuperAdmin();
+        return $this->role === 'admin';
     }
 
-    /**
-     * Verificar si el usuario es cliente
-     */
-    public function isCliente()
+    public function isVendor()
     {
-        return $this->hasRole('cliente');
+        return $this->role === 'vendor';
+    }
+
+    public function isActive()
+    {
+        return $this->status === 'active';
     }
 }
