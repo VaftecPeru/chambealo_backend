@@ -17,13 +17,13 @@ class User extends Authenticatable implements JWTSubject
     protected $fillable = [
         'full_name',
         'email',
-        'password',
+        'password_hash',  // ← CAMBIAR: de 'password' a 'password_hash'
         'role',
         'status'
     ];
 
     protected $hidden = [
-        'password',
+        'password_hash',  // ← CAMBIAR: de 'password' a 'password_hash'
         'remember_token',
     ];
 
@@ -49,10 +49,12 @@ class User extends Authenticatable implements JWTSubject
         ];
     }
 
-    // Mutator para password hashing
-    public function setPasswordAttribute($value)
+    /**
+     * 🔥 AGREGAR: Para que Laravel use password_hash en la autenticación
+     */
+    public function getAuthPassword()
     {
-        $this->attributes['password'] = bcrypt($value);
+        return $this->password_hash;
     }
 
     // Relaciones
