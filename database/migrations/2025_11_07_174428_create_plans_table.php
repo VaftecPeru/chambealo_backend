@@ -1,4 +1,5 @@
 <?php
+// database/migrations/xxxx_xx_xx_xxxxxx_create_plans_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -11,16 +12,11 @@ return new class extends Migration
         Schema::create('plans', function (Blueprint $table) {
             $table->id('plan_id');
             $table->string('name');
-            $table->string('slug')->unique();
-            $table->decimal('price', 8, 2);
+            $table->decimal('price', 10, 2);
             $table->integer('duration_days');
-            $table->json('features');
-            $table->text('description')->nullable();
-            $table->boolean('is_active')->default(true);
-            $table->integer('max_products')->nullable()->comment('Límite de productos para este plan');
-            $table->integer('max_brands')->nullable()->comment('Límite de marcas para este plan');
+            $table->text('features');
             $table->timestamps();
-            // NOTA: No usamos softDeletes en plans para mantener historial
+            $table->softDeletes();
         });
     }
 

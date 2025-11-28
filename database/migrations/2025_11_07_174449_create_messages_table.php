@@ -1,4 +1,5 @@
 <?php
+// database/migrations/xxxx_xx_xx_xxxxxx_create_messages_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -14,15 +15,9 @@ return new class extends Migration
             $table->foreignId('received_id')->constrained('users', 'user_id');
             $table->string('subject');
             $table->text('body');
-            $table->boolean('is_read')->default(false);
-            $table->timestamp('read_at')->nullable();
             $table->timestamp('sent_at')->useCurrent();
             $table->timestamps();
             $table->softDeletes();
-
-            // Índices para mejor performance
-            $table->index(['sender_id', 'sent_at']);
-            $table->index(['received_id', 'is_read', 'sent_at']);
         });
     }
 

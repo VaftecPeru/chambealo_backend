@@ -1,4 +1,5 @@
 <?php
+// database/migrations/xxxx_xx_xx_xxxxxx_create_subscriptions_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -14,18 +15,9 @@ return new class extends Migration
             $table->foreignId('plan_id')->constrained('plans', 'plan_id');
             $table->date('start_date');
             $table->date('end_date');
-            $table->enum('status', ['active', 'canceled', 'expired', 'pending'])->default('pending');
-            $table->string('stripe_subscription_id')->nullable()->comment('ID de suscripción en Stripe');
-            $table->string('stripe_customer_id')->nullable()->comment('ID de cliente en Stripe');
-            $table->timestamp('canceled_at')->nullable();
-            $table->text('cancel_reason')->nullable();
+            $table->enum('status', ['active', 'expired', 'cancelled'])->default('active');
             $table->timestamps();
-            // NOTA: No usamos softDeletes en subscriptions para mantener historial
-
-            // Índices para mejor performance
-            $table->index(['user_id', 'status']);
-            $table->index(['end_date', 'status']);
-            $table->index(['stripe_subscription_id']);
+            $table->softDeletes();
         });
     }
 

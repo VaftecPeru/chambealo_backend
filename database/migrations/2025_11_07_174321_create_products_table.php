@@ -1,4 +1,5 @@
 <?php
+// database/migrations/xxxx_xx_xx_000003_create_products_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -17,14 +18,10 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->decimal('price', 10, 2);
             $table->integer('stock')->default(0);
-            $table->enum('status', ['active', 'inactive', 'out_of_stock', 'discontinued'])->default('active');
+            $table->enum('status', ['active', 'inactive', 'out_of_stock'])->default('active');
             $table->json('specifications')->nullable();
             $table->timestamps();
             $table->softDeletes();
-
-            // Índices para mejor performance
-            $table->index(['status', 'stock']);
-            $table->index(['category_id', 'brand_id']);
         });
     }
 
