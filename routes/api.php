@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\PaymentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
@@ -37,6 +38,7 @@ Route::middleware(['auth:api', 'active'])->group(function () {
     Route::post('/logout-all', [AuthController::class, 'logoutAllDevices']);
     Route::get('/profile', [AuthController::class, 'profile']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
+    Route::post('/process-payment', [PaymentController::class, 'process']);
 
     // Product routes
     Route::post('/products/{product}/reviews', [ProductController::class, 'addReview']);
