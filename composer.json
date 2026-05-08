@@ -10,7 +10,7 @@
         "laravel/framework": "^10.10",
         "laravel/sanctum": "^3.3",
         "laravel/tinker": "^2.8",
-        "mercadopago/dx-php": "2.6.1",
+        "mercadopago/dx-php": "^2.6",
         "tymon/jwt-auth": "^2.2"
     },
     "require-dev": {

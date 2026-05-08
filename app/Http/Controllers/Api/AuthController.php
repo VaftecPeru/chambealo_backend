@@ -1,8 +1,9 @@
 <?php
 // app/Http/Controllers/AuthController.php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Api; // <-- Agrega el \Api al final
 
+use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
