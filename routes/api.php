@@ -1,9 +1,10 @@
 <?php
+// Ajusta al nombre de tu controlador
 
-use App\Http\Controllers\PaymentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\BrandController;
@@ -21,6 +22,12 @@ Route::middleware('throttle:10,1')->group(function () {
     Route::post('/refresh', [AuthController::class, 'refresh']);
 });
 
+// Rutas para IziPay
+    Route::prefix('v1/izipay')->group(function () {
+    Route::post('/create-token', [PaymentController::class, 'createToken']);
+    Route::post('/webhook', [PaymentController::class, 'webhook']);
+});
+
 // Rutas públicas
 Route::middleware('throttle:60,1')->group(function () {
     Route::get('/categories', [CategoryController::class, 'index']);
@@ -29,6 +36,7 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::get('/brands/{brand}', [BrandController::class, 'show']);
     Route::get('/products', [ProductController::class, 'index']);
     Route::get('/products/{product}', [ProductController::class, 'show']);
+    Route::post('/process-payment', [PaymentController::class, 'process']);
 });
 
 // Rutas protegidas
@@ -38,7 +46,8 @@ Route::middleware(['auth:api', 'active'])->group(function () {
     Route::post('/logout-all', [AuthController::class, 'logoutAllDevices']);
     Route::get('/profile', [AuthController::class, 'profile']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
-    Route::post('/process-payment', [PaymentController::class, 'process']);
+  
+   
 
     // Product routes
     Route::post('/products/{product}/reviews', [ProductController::class, 'addReview']);
