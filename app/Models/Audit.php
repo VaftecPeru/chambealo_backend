@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Carbon\Carbon;
 
 class Audit extends Model
 {
@@ -47,39 +47,26 @@ class Audit extends Model
     }
 
     // Scope para acciones específicas
-    public function scopeAction($query, $action)
-    {
-        return $query->where('action', $action);
+public function scopeAction(Builder $query, string $action): Builder
+{
+    return $query->where('action', $action);
+}
+
+// Scope para una entidad específica
+public function scopeForEntity(Builder $query, string $entityType, $entityId = null): Builder
+{
+    $query = $query->where('entity_type', $entityType);
+
+    if ($entityId) {
+        $query->where('entity_id', $entityId);
     }
 
-    // Scope para una entidad específica
-    public function scopeForEntity($query, $entityType, $entityId = null)
-    {
-        $query = $query->where('entity_type', $entityType);
+    return $query;
+}
 
-        if ($entityId) {
-            $query->where('entity_id', $entityId);
-        }
-
-        return $query;
-    }
-
-    // Scope CORREGIDO para registros recientes
-    public function scopeRecent($query, $days = 7)
-    {
-        return $query->where('timestamp', '>=', now()->subDays($days));
-    }
-
-    // Método para tiempo transcurrido
-    public function getTimeAgoAttribute()
-    {
-        return Carbon::parse($this->timestamp)->diffForHumans();
-    }
-
-    // Método para verificar si es registro reciente
-    public function isRecent($hours = 24)
-    {
-        $timestamp = Carbon::parse($this->timestamp);
-        return $timestamp->diffInHours(now()) <= $hours;
-    }
+// Scope CORREGIDO para registros recientes
+public function scopeRecent(Builder $query, int $days = 7): Builder
+{
+    return $query->where('timestamp', '>=', now()->subDays($days));
+}
 }
