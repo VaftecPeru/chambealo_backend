@@ -1,5 +1,4 @@
 <?php
-// Ajusta al nombre de tu controlador
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -8,6 +7,7 @@ use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\BrandController;
+use App\Http\Controllers\PayPalController;
 
 /*
 |--------------------------------------------------------------------------
@@ -28,6 +28,8 @@ Route::middleware('throttle:10,1')->group(function () {
     Route::post('/webhook', [PaymentController::class, 'webhook']);
 });
 
+
+
 // Rutas públicas
 Route::middleware('throttle:60,1')->group(function () {
     Route::get('/categories', [CategoryController::class, 'index']);
@@ -47,7 +49,9 @@ Route::middleware(['auth:api', 'active'])->group(function () {
     Route::get('/profile', [AuthController::class, 'profile']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
   
-   
+    // Rutas para Paypal - Usar el mismo guard
+    Route::post('/paypal/create-order', [PayPalController::class, 'createOrder']);
+    Route::post('/paypal/capture-order', [PayPalController::class, 'captureOrder']);
 
     // Product routes
     Route::post('/products/{product}/reviews', [ProductController::class, 'addReview']);
