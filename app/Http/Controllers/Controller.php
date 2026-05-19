@@ -2,11 +2,25 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use Illuminate\Foundation\Validation\ValidatesRequests;
-use Illuminate\Routing\Controller as BaseController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use App\Models\Subscription;
 
-class Controller extends BaseController
+class SubscriptionController extends Controller
 {
-    use AuthorizesRequests, ValidatesRequests;
+    public function index()
+    {
+        // Único método: Desde el contenedor (inyectado por middleware)
+        $tenantId = app('tenant_id');
+
+        // Log para debugging (opcional)
+        Log::info('Tenant ID from container:', [
+            'tenant_id' => $tenantId
+        ]);
+
+        // Usar el tenant ID para filtrar las suscripciones correspondientes
+        $subscriptions = Subscription::where('user_id', $tenantId)->get();
+
+        return response()->json($subscriptions);
+    }
 }
