@@ -2,25 +2,68 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Foundation\Validation\ValidatesRequests;
+use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Support\Facades\Log;
-use App\Models\Subscription;
 
-class SubscriptionController extends Controller
+class Controller extends BaseController
 {
-    public function index()
+    use AuthorizesRequests, ValidatesRequests;
+    
+    /**
+     * Obtener el tenant ID actual
+     */
+    protected function getTenantId()
     {
-        // Único método: Desde el contenedor (inyectado por middleware)
-        $tenantId = app('tenant_id');
-
-        // Log para debugging (opcional)
-        Log::info('Tenant ID from container:', [
-            'tenant_id' => $tenantId
-        ]);
-
-        // Usar el tenant ID para filtrar las suscripciones correspondientes
-        $subscriptions = Subscription::where('user_id', $tenantId)->get();
-
-        return response()->json($subscriptions);
+        return app('tenant_id');
+    }
+    
+    /**
+     * Obtener el tenant ID o lanzar excepción
+     */
+    protected function getTenantIdOrFail()
+    {
+        $tenantId = $this->getTenantId();
+        
+        if (!$tenantId) {
+            Log::error('Tenant no identificado', [
+                'controller' => class_basename($this),
+                'user_id' => auth()->id(),
+                'ip' => request()->ip()
+            ]);
+            
+            abort(400, 'Tenant not identified');
+        }
+        
+        return $tenantId;
+    }
+    
+    /**
+     * Verificar si un modelo pertenece al tenant actual
+     */
+    protected function belongsToTenant($model)
+    {
+        $tenantId = $this->getTenantId();
+        
+        if (!$tenantId || !isset($model->tenant_id)) {
+            return false;
+        }
+        
+        return $model->tenant_id == $tenantId;
+    }
+    
+    /**
+     * Filtrar query por tenant actual
+     */
+    protected function scopeTenant($query)
+    {
+        $tenantId = $this->getTenantId();
+        
+        if ($tenantId) {
+            return $query->where('tenant_id', $tenantId);
+        }
+        
+        return $query;
     }
 }
