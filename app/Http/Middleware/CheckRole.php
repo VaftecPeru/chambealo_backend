@@ -21,7 +21,8 @@ class CheckRole
             ], 401);
         }
 
-        $userRole = $request->user()->role->nombre;
+        // VAFTEC: role es string, no objeto
+        $userRole = $request->user()->role;
 
         // El superadministrador tiene acceso a todo
         if ($userRole === 'superadministrador') {

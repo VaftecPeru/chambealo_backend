@@ -23,12 +23,19 @@ Route::middleware('throttle:10,1')->group(function () {
 });
 
 // Rutas para IziPay
-    Route::prefix('v1/izipay')->group(function () {
+Route::prefix('v1/izipay')->group(function () {
     Route::post('/create-token', [PaymentController::class, 'createToken']);
-    Route::post('/webhook', [PaymentController::class, 'webhook']);
+    // IziPay Webhook - External webhook, no auth required but throttled to prevent abuse
+    Route::post('/webhook', [PaymentController::class, 'webhook'])
+        ->middleware('throttle:60,1');
 });
 
-
+// VAFTEC: Webhooks PayPal - Eventos recomendados (punto 9)
+Route::prefix('v1/paypal')->group(function () {
+    // PayPal Webhook - External webhook, no auth required but throttled to prevent abuse
+    Route::post('/webhook', [PayPalController::class, 'handleWebhook'])
+        ->middleware('throttle:60,1');
+});
 
 // Rutas públicas
 Route::middleware('throttle:60,1')->group(function () {
@@ -49,6 +56,24 @@ Route::middleware(['auth:api', 'active'])->group(function () {
     Route::get('/profile', [AuthController::class, 'profile']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
   
+    // VAFTEC Payment Endpoints (v1)
+    Route::prefix('v1')->group(function () {
+        // Payment Session Creation - Create payment session for Izipay/PayPal
+        Route::post('/payment/session', [PaymentController::class, 'createSession'])
+            ->middleware('throttle:30,1');
+        
+        // Payment Confirmation - Confirm payment after form completion
+        Route::post('/payment/confirm', [PaymentController::class, 'confirm'])
+            ->middleware('throttle:30,1');
+        
+        // Query Endpoints - Get payment status and order details
+        Route::get('/orders/{id}', [PaymentController::class, 'getOrder'])
+            ->middleware('throttle:60,1');
+        
+        Route::get('/payment/status/{order_id}', [PaymentController::class, 'getPaymentStatus'])
+            ->middleware('throttle:60,1');
+    });
+    
     // Rutas para Paypal - Usar el mismo guard
     Route::post('/paypal/create-order', [PayPalController::class, 'createOrder']);
     Route::post('/paypal/capture-order', [PayPalController::class, 'captureOrder']);

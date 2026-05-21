@@ -16,7 +16,12 @@ use App\Mail\PaymentConfirmed;
 
 class PayPalController extends Controller
 {
-    private function getPayPalAccessToken()
+    /**
+     * Get PayPal access token for API calls
+     *
+     * @return string
+     */
+    private function getPayPalAccessToken(): string
     {
         $clientId = config('services.paypal.client_id');
         $clientSecret = config('services.paypal.secret');
@@ -30,7 +35,13 @@ class PayPalController extends Controller
         return $response->json()['access_token'];
     }
 
-    public function createOrder(Request $request)
+    /**
+     * Create a PayPal order for payment processing
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\Response
+     */
+    public function createOrder(Request $request): \Illuminate\Http\Response
     {
         $tenantId = $this->getTenantId();
 
@@ -90,7 +101,13 @@ class PayPalController extends Controller
         return response()->json($response->json());
     }
 
-    public function captureOrder(Request $request)
+    /**
+     * Capture a completed PayPal order
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\Response
+     */
+    public function captureOrder(Request $request): \Illuminate\Http\Response
     {
         $orderID = $request->orderID;
         $accessToken = $this->getPayPalAccessToken();
@@ -162,7 +179,13 @@ class PayPalController extends Controller
         return response()->json(['error' => 'No se pudo capturar el pago'], 500);
     }
 
-    public function handleWebhook(Request $request)
+    /**
+     * Handle PayPal webhook events
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\Response
+     */
+    public function handleWebhook(Request $request): \Illuminate\Http\Response
     {
         if (config('app.env') === 'production' && !$request->secure()) {
             Log::warning('Webhook recibido sin HTTPS', [
@@ -176,6 +199,39 @@ class PayPalController extends Controller
         $tenantId = null;
 
         switch ($event['event_type']) {
+            case 'CHECKOUT.ORDER.APPROVED':
+                // VAFTEC: Webhook evento recomendado (punto 9)
+                try {
+                    DB::transaction(function () use ($event, &$tenantId) {
+                        $orderData = $event['resource'];
+                        $customId = $orderData['custom_id'] ?? null;
+                        
+                        if ($customId) {
+                            $tenantId = $customId;
+                        }
+
+                        Log::info('Webhook: Orden aprobada', [
+                            'order_id' => $orderData['id'],
+                            'tenant_id' => $tenantId,
+                            'status' => $orderData['status']
+                        ]);
+
+                        // Registrar evento en BD para auditoría
+                        \App\Models\Payment::create([
+                            'order_id' => $orderData['id'],
+                            'email' => $orderData['payer']['email_address'] ?? 'unknown@example.com',
+                            'amount' => $orderData['purchase_units'][0]['amount']['value'] ?? 0,
+                            'status' => 'approved',
+                            'webhook_event' => 'CHECKOUT.ORDER.APPROVED',
+                            'webhook_received_at' => now(),
+                            'tenant_id' => $tenantId,
+                        ]);
+                    });
+                } catch (\Exception $e) {
+                    Log::error('Webhook error en CHECKOUT.ORDER.APPROVED: ' . $e->getMessage());
+                }
+                break;
+
             case 'PAYMENT.CAPTURE.COMPLETED':
                 try {
                     DB::transaction(function () use ($event, &$tenantId) {
@@ -260,7 +316,13 @@ class PayPalController extends Controller
         return response()->json(['status' => 'ok']);
     }
 
-    private function calculatePlanTotal(Plan $plan)
+    /**
+     * Calculate the total amount for a plan (including tax and discounts)
+     *
+     * @param Plan $plan
+     * @return float
+     */
+    private function calculatePlanTotal(Plan $plan): float
     {
         $subtotal = $plan->price;
         $tax = $subtotal * 0.16;
@@ -280,7 +342,14 @@ class PayPalController extends Controller
         return $total;
     }
 
-        private function saveTransaction(array $data, $tenantId = null)
+    /**
+     * Save PayPal transaction to database and create subscription
+     *
+     * @param array $data
+     * @param int|string|null $tenantId
+     * @return void
+     */
+    private function saveTransaction(array $data, int|string|null $tenantId = null): void
     {
         // 1. Intentar capturar el usuario (Corregido el doble '\')
         $user = auth()->user() ?? \App\Models\User::where('email', $data['payer']['email_address'])->first();

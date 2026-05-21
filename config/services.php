@@ -37,4 +37,11 @@ return [
         'public_key' => env('MERCADOPAGO_PUBLIC_KEY'),
     ],
 
+    // VAFTEC: Configuración PayPal (Secret Key nunca en frontend)
+    'paypal' => [
+        'client_id' => env('PAYPAL_CLIENT_ID'),
+        'secret' => env('PAYPAL_SECRET'),
+        'mode' => env('PAYPAL_MODE', 'sandbox'),
+    ],
+
 ];
