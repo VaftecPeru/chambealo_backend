@@ -27,14 +27,20 @@ Route::prefix('v1/izipay')->group(function () {
     Route::post('/create-token', [PaymentController::class, 'createToken']);
     // IziPay Webhook - External webhook, no auth required but throttled to prevent abuse
     Route::post('/webhook', [PaymentController::class, 'webhook'])
-        ->middleware('throttle:60,1');
+        ->middleware(['throttle:60,1', 'https.webhook']);
 });
 
 // VAFTEC: Webhooks PayPal - Eventos recomendados (punto 9)
 Route::prefix('v1/paypal')->group(function () {
     // PayPal Webhook - External webhook, no auth required but throttled to prevent abuse
     Route::post('/webhook', [PayPalController::class, 'handleWebhook'])
-        ->middleware('throttle:60,1');
+        ->middleware(['throttle:60,1', 'https.webhook']);
+});
+
+// Mercado Pago webhooks
+Route::prefix('v1/mercadopago')->group(function () {
+    Route::post('/webhook', [PaymentController::class, 'handleMercadoPagoWebhook'])
+        ->middleware(['throttle:60,1', 'https.webhook']);
 });
 
 // Rutas públicas
