@@ -13,9 +13,11 @@ use App\Models\User;
 use App\Models\Plan;
 use App\Models\Audit;
 use App\Mail\PaymentConfirmed;
+use App\Traits\LogsPaymentEvents;
 
 class PayPalController extends Controller
 {
+    use LogsPaymentEvents;
     /**
      * Get PayPal access token for API calls
      *
@@ -187,11 +189,33 @@ class PayPalController extends Controller
      */
     public function handleWebhook(Request $request): \Illuminate\Http\Response
     {
+        // NUEVO: Registrar HTTPS verification
+        $httpsInfo = $this->checkHttps($request);
+
+        // Log webhook reception immediately
+        $this->logWebhookReceived(
+            gateway: 'paypal',
+            webhook_id: $request->input('id'),
+            payload: $request->all(),
+            headers: $request->headers->all(),
+            https_verified: $httpsInfo['verified'],
+            tls_version: $httpsInfo['tls_version']
+        );
+
         if (config('app.env') === 'production' && !$request->secure()) {
             Log::warning('Webhook recibido sin HTTPS', [
                 'ip' => $request->ip(),
                 'url' => $request->fullUrl()
             ]);
+            
+            // Log webhook verification failure
+            $this->logWebhookVerification(
+                gateway: 'paypal',
+                verified: false,
+                webhook_id: $request->input('id'),
+                error_message: 'HTTPS required in production'
+            );
+            
             return response()->json(['error' => 'HTTPS Required'], 400);
         }
 
@@ -227,8 +251,25 @@ class PayPalController extends Controller
                             'tenant_id' => $tenantId,
                         ]);
                     });
+                    
+                    // Log successful webhook processing
+                    $this->logWebhookProcessed(
+                        gateway: 'paypal',
+                        success: true,
+                        webhook_id: $event['id'] ?? null,
+                        response: ['event_type' => $event['event_type'], 'status' => 'approved']
+                    );
+                    
                 } catch (\Exception $e) {
                     Log::error('Webhook error en CHECKOUT.ORDER.APPROVED: ' . $e->getMessage());
+                    
+                    // Log webhook processing failure
+                    $this->logWebhookProcessed(
+                        gateway: 'paypal',
+                        success: false,
+                        webhook_id: $event['id'] ?? null,
+                        error_message: $e->getMessage()
+                    );
                 }
                 break;
 
@@ -274,8 +315,25 @@ class PayPalController extends Controller
                             ]);
                         }
                     });
+                    
+                    // Log successful webhook processing
+                    $this->logWebhookProcessed(
+                        gateway: 'paypal',
+                        success: true,
+                        webhook_id: $event['id'] ?? null,
+                        response: ['event_type' => $event['event_type'], 'status' => 'completed']
+                    );
+                    
                 } catch (\Exception $e) {
                     Log::error('Webhook error en PAYMENT.CAPTURE.COMPLETED: ' . $e->getMessage());
+                    
+                    // Log webhook processing failure
+                    $this->logWebhookProcessed(
+                        gateway: 'paypal',
+                        success: false,
+                        webhook_id: $event['id'] ?? null,
+                        error_message: $e->getMessage()
+                    );
                 }
                 break;
 
@@ -303,8 +361,25 @@ class PayPalController extends Controller
                             'tenant_id' => $tenantId
                         ]);
                     }
+                    
+                    // Log payment failure
+                    $this->logWebhookProcessed(
+                        gateway: 'paypal',
+                        success: false,
+                        webhook_id: $event['id'] ?? null,
+                        error_message: 'Payment capture denied'
+                    );
+                    
                 } catch (\Exception $e) {
                     Log::error('Webhook error en PAYMENT.CAPTURE.DENIED: ' . $e->getMessage());
+                    
+                    // Log webhook processing failure
+                    $this->logWebhookProcessed(
+                        gateway: 'paypal',
+                        success: false,
+                        webhook_id: $event['id'] ?? null,
+                        error_message: $e->getMessage()
+                    );
                 }
                 break;
 

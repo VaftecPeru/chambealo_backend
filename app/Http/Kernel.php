@@ -69,6 +69,8 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'role' => \App\Http\Middleware\CheckUserRole::class,
         'active' => \App\Http\Middleware\CheckUserStatus::class,
-        'bindings' => \Illuminate\Routing\Middleware\SubstituteBindings::class
+        'bindings' => \Illuminate\Routing\Middleware\SubstituteBindings::class,
+        'https.webhook' => \App\Http\Middleware\EnforceHttpsForWebhooks::class,
+        'admin' => \App\Http\Middleware\AdminMiddleware::class,
     ];
 }

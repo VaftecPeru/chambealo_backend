@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\PayPalController;
+use App\Http\Controllers\Admin\PaymentLogController as AdminPaymentLogController;
 
 /*
 |--------------------------------------------------------------------------
@@ -112,4 +113,18 @@ Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
     // Admin brand management
     Route::get('/admin/brands', [BrandController::class, 'adminIndex']);
     Route::put('/admin/brands/{brand}/status', [BrandController::class, 'updateVisibility']);
+    
+    // Admin payment logs
+    Route::prefix('admin/payment-logs')->group(function () {
+        Route::get('/', [AdminPaymentLogController::class, 'index'])
+            ->name('admin.payment-logs.index');
+        Route::get('/{id}', [AdminPaymentLogController::class, 'show'])
+            ->name('admin.payment-logs.show');
+        Route::get('/export/logs', [AdminPaymentLogController::class, 'export'])
+            ->name('admin.payment-logs.export');
+        Route::get('/security/summary', [AdminPaymentLogController::class, 'securitySummary'])
+            ->name('admin.payment-logs.security');
+        Route::get('/stats/dashboard', [AdminPaymentLogController::class, 'statistics'])
+            ->name('admin.payment-logs.statistics');
+    });
 });

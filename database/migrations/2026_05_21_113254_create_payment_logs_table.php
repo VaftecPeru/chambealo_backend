@@ -29,6 +29,9 @@ return new class extends Migration
                 'payment.initiated',
                 'payment.completed',
                 'payment.failed',
+                'security.event',
+                'security.replay_attempt',
+                'security.signature_verification',
             ]);
             
             // Status tracking
@@ -44,6 +47,7 @@ return new class extends Migration
             $table->enum('gateway', [
                 'paypal',
                 'izipay',
+                'mercadopago',
             ])->nullable();
             
             // Webhook deduplication ID
