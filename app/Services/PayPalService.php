@@ -20,10 +20,10 @@ class PayPalService implements PaymentServiceInterface
 
     public function __construct()
     {
-        $this->clientId = config('services.paypal.client_id', '');
-        $this->clientSecret = config('services.paypal.secret', '');
-        $this->mode = config('services.paypal.mode', 'sandbox');
-        $this->webhookId = config('services.paypal.webhook_id', '');
+        $this->clientId = config('payment.paypal.client_id', '');
+        $this->clientSecret = config('payment.paypal.client_secret', '');
+        $this->mode = config('payment.paypal.environment', 'sandbox');
+        $this->webhookId = config('payment.paypal.webhook_id', '');
 
         $this->apiUrl = $this->mode === 'production'
             ? 'https://api-m.paypal.com'

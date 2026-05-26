@@ -39,7 +39,7 @@ class InvoiceMailable extends Mailable
         $cc = array_filter([$adminEmail, $tenantEmail]);
 
         return new Envelope(
-            subject: "Invoice #{$this->order->order_id} - VAFTEC",
+            subject: "Invoice #{$this->order->order_id} - Chambealo",
             to: $to,
             cc: $cc,
         );

@@ -83,11 +83,43 @@ class PaymentRepository
     }
 
     /**
-     * Update payment status
+     * Get payment by external payment ID
      */
-    public function updatePaymentStatus(string $orderId, string $status): bool
+    public function getPaymentByPaymentId(string $paymentId): ?Payment
     {
-        return (bool) Payment::where('order_id', $orderId)->update(['status' => $status]);
+        return Payment::where('payment_id', $paymentId)->first();
+    }
+
+    /**
+     * Update payment status and optionally create transaction
+     */
+    public function updatePaymentStatus(string $orderId, string $status, array $rawResponse = null): Payment
+    {
+        $payment = Payment::where('order_id', $orderId)->firstOrFail();
+        $payment->status = $status;
+        
+        if ($rawResponse) {
+            $payment->raw_response = $rawResponse;
+        }
+        
+        $payment->save();
+
+        // Create transaction when payment is completed
+        if (strtolower($status) === 'completed' && $rawResponse) {
+            $this->logTransaction([
+                'payment_id' => $payment->id,
+                'transaction_id' => $rawResponse['transaction_id'] ?? $rawResponse['id'] ?? null,
+                'order_id' => $payment->order_id,
+                'user_id' => $payment->user_id,
+                'tenant_id' => $payment->tenant_id,
+                'gateway' => $payment->gateway,
+                'status' => 'success',
+                'amount' => $payment->amount,
+                'raw_data' => $rawResponse,
+            ]);
+        }
+
+        return $payment;
     }
 
     /**

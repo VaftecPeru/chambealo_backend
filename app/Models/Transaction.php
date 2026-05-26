@@ -11,21 +11,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Stores detailed transaction logs for audit trail and payment verification
  * 
  * @property int $id
+ * @property int $payment_id Foreign key to payments table
  * @property string $transaction_id Unique transaction ID
- * @property string $order_id Reference to order
- * @property int $user_id User who made the payment
- * @property string $tenant_id Multi-tenant identifier
- * @property string $payment_method Payment provider (izipay, paypal, mercadopago)
- * @property string $process Payment process (create_session, confirm_payment, webhook)
+ * @property string $gateway Payment gateway (izipay, paypal, mercadopago)
  * @property string $status Transaction status (success, failed, pending)
  * @property float $amount Payment amount
- * @property array $request_payload Original request data
- * @property array $response_payload Provider response data
- * @property string $provider_transaction_id External provider transaction ID
- * @property string $webhook_event Webhook event type
- * @property string $ip_address Client IP address
- * @property string $user_agent Client user agent
- * @property string|null $error_message Error details if failed
+ * @property array $raw_data Provider response data
  * @property \Illuminate\Support\Carbon $created_at
  * @property \Illuminate\Support\Carbon $updated_at
  */
@@ -36,14 +27,17 @@ class Transaction extends Model
     protected $table = 'transactions';
 
     protected $fillable = [
+        'payment_id',
         'transaction_id',
         'order_id',
         'user_id',
         'tenant_id',
+        'gateway',
         'payment_method',
         'process',
         'status',
         'amount',
+        'raw_data',
         'request_payload',
         'response_payload',
         'provider_transaction_id',
@@ -54,6 +48,7 @@ class Transaction extends Model
     ];
 
     protected $casts = [
+        'raw_data' => 'array',
         'request_payload' => 'array',
         'response_payload' => 'array',
         'amount' => 'float',
@@ -62,7 +57,15 @@ class Transaction extends Model
     ];
 
     /**
-     * Get the order associated with this transaction.
+     * Get the payment associated with this transaction
+     */
+    public function payment(): BelongsTo
+    {
+        return $this->belongsTo(Payment::class);
+    }
+
+    /**
+     * Get the order associated with this transaction
      */
     public function order(): BelongsTo
     {
@@ -70,7 +73,7 @@ class Transaction extends Model
     }
 
     /**
-     * Get the user associated with this transaction.
+     * Get the user associated with this transaction
      */
     public function user(): BelongsTo
     {
@@ -78,15 +81,7 @@ class Transaction extends Model
     }
 
     /**
-     * Get the payment associated with this transaction.
-     */
-    public function payment(): BelongsTo
-    {
-        return $this->belongsTo(Payment::class, 'order_id', 'order_id');
-    }
-
-    /**
-     * Scope to get successful transactions.
+     * Scope to get successful transactions
      */
     public function scopeSuccessful($query)
     {
@@ -94,7 +89,7 @@ class Transaction extends Model
     }
 
     /**
-     * Scope to get failed transactions.
+     * Scope to get failed transactions
      */
     public function scopeFailed($query)
     {
@@ -102,7 +97,7 @@ class Transaction extends Model
     }
 
     /**
-     * Scope to filter by process type.
+     * Scope to filter by process type
      */
     public function scopeByProcess($query, string $process)
     {
@@ -110,7 +105,7 @@ class Transaction extends Model
     }
 
     /**
-     * Scope to filter by payment method.
+     * Scope to filter by payment method
      */
     public function scopeByPaymentMethod($query, string $method)
     {

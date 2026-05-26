@@ -20,11 +20,11 @@ class IzipayService implements PaymentServiceInterface
 
     public function __construct()
     {
-        $this->clientId = config('izipay.client_id', '');
-        $this->clientSecret = config('izipay.secret', '');
-        $this->hashKey = config('izipay.hash_key', '');
-        $this->apiUrl = config('izipay.url', 'https://api.izipay.pe');
-        $this->publicKey = config('izipay.public_key', '');
+        $this->clientId = config('payment.izipay.client_id', '');
+        $this->clientSecret = config('payment.izipay.secret', '');
+        $this->hashKey = config('payment.izipay.hash_key', '');
+        $this->apiUrl = config('payment.izipay.url', 'https://api.izipay.pe');
+        $this->publicKey = config('payment.izipay.public_key', '');
 
         if (!$this->clientId || !$this->clientSecret) {
             throw new \RuntimeException('Izipay configuration missing');
