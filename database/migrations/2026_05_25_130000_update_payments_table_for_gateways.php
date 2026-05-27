@@ -28,7 +28,8 @@ return new class extends Migration
                     $table->json('raw_response')->nullable()->after('currency');
                 }
                 if (!Schema::hasColumn('payments', 'user_id')) {
-                    $table->foreignId('user_id')->nullable()->constrained('users');
+                    $table->bigInteger('user_id')->nullable()->index();
+                    $table->foreign('user_id')->references('user_id')->on('users')->onDelete('set null');
                 }
                 if (!Schema::hasColumn('payments', 'tenant_id')) {
                     $table->string('tenant_id')->nullable()->index();
@@ -60,8 +61,35 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (Schema::hasTable('transactions')) {
+            Schema::table('transactions', function (Blueprint $table) {
+                // Drop payment_id foreign key if exists
+                $indexName = 'transactions_payment_id_foreign';
+                try {
+                    $table->dropForeign([$indexName]);
+                } catch (\Exception $e) {
+                    // Foreign key might not exist
+                }
+                if (Schema::hasColumn('transactions', 'payment_id')) {
+                    $table->dropColumn('payment_id');
+                }
+                if (Schema::hasColumn('transactions', 'raw_data')) {
+                    $table->dropColumn('raw_data');
+                }
+            });
+        }
+
         if (Schema::hasTable('payments')) {
             Schema::table('payments', function (Blueprint $table) {
+                // Drop user_id foreign key if exists
+                try {
+                    $table->dropForeign(['user_id']);
+                } catch (\Exception $e) {
+                    // Foreign key might not exist
+                }
+                if (Schema::hasColumn('payments', 'user_id')) {
+                    $table->dropColumn('user_id');
+                }
                 if (Schema::hasColumn('payments', 'gateway')) {
                     $table->dropColumn('gateway');
                 }
@@ -74,10 +102,6 @@ return new class extends Migration
                 if (Schema::hasColumn('payments', 'raw_response')) {
                     $table->dropColumn('raw_response');
                 }
-                if (Schema::hasColumn('payments', 'user_id')) {
-                    $table->dropForeignKeyConstraints();
-                    $table->dropColumn('user_id');
-                }
                 if (Schema::hasColumn('payments', 'tenant_id')) {
                     $table->dropColumn('tenant_id');
                 }
@@ -86,18 +110,6 @@ return new class extends Migration
                 }
                 if (Schema::hasColumn('payments', 'webhook_received_at')) {
                     $table->dropColumn('webhook_received_at');
-                }
-            });
-        }
-
-        if (Schema::hasTable('transactions')) {
-            Schema::table('transactions', function (Blueprint $table) {
-                if (Schema::hasColumn('transactions', 'payment_id')) {
-                    $table->dropForeignKeyConstraints();
-                    $table->dropColumn('payment_id');
-                }
-                if (Schema::hasColumn('transactions', 'raw_data')) {
-                    $table->dropColumn('raw_data');
                 }
             });
         }

@@ -11,27 +11,37 @@ class Order extends Model
 {
     use HasFactory;
 
+    // Status constants
+    public const STATUS_CART = 'cart';
+    public const STATUS_CHECKOUT = 'checkout';
+    public const STATUS_PAYMENT_PENDING = 'payment_pending';
+    public const STATUS_PAID = 'paid';
+    public const STATUS_SHIPPED = 'shipped';
+    public const STATUS_DELIVERED = 'delivered';
+    public const STATUS_CANCELLED = 'cancelled';
+
     protected $fillable = [
         'order_id',
         'user_id',
-        'tenant_id',
-        'plan_id',
-        'subtotal',
-        'tax',
-        'discount',
-        'total',
+        'total_amount',
+        'taxes',
+        'shipping_cost',
         'status',
-        'payment_method',
-        'ip_address',
-        'user_agent',
-        'notes',
+        'items',
+        'shipping_address',
+        'billing_address',
+        'coupon_code',
+        'discount',
     ];
 
     protected $casts = [
-        'subtotal' => 'float',
-        'tax' => 'float',
+        'items' => 'array',
+        'shipping_address' => 'array',
+        'billing_address' => 'array',
+        'total_amount' => 'float',
+        'taxes' => 'float',
+        'shipping_cost' => 'float',
         'discount' => 'float',
-        'total' => 'float',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -42,14 +52,6 @@ class Order extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id', 'user_id');
-    }
-
-    /**
-     * Get the plan associated with the order.
-     */
-    public function plan(): BelongsTo
-    {
-        return $this->belongsTo(Plan::class, 'plan_id', 'plan_id');
     }
 
     /**
@@ -73,7 +75,7 @@ class Order extends Model
      */
     public function markAsPaid(): void
     {
-        $this->update(['status' => 'paid']);
+        $this->update(['status' => self::STATUS_PAID]);
     }
 
     /**
@@ -81,7 +83,7 @@ class Order extends Model
      */
     public function markAsFailed(): void
     {
-        $this->update(['status' => 'failed']);
+        $this->update(['status' => self::STATUS_CANCELLED]);
     }
 
     /**
@@ -89,6 +91,22 @@ class Order extends Model
      */
     public function markAsCancelled(): void
     {
-        $this->update(['status' => 'cancelled']);
+        $this->update(['status' => self::STATUS_CANCELLED]);
+    }
+
+    /**
+     * Mark order as shipped.
+     */
+    public function markAsShipped(): void
+    {
+        $this->update(['status' => self::STATUS_SHIPPED]);
+    }
+
+    /**
+     * Mark order as delivered.
+     */
+    public function markAsDelivered(): void
+    {
+        $this->update(['status' => self::STATUS_DELIVERED]);
     }
 }

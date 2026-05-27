@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\PayPalController;
 use App\Http\Controllers\Admin\PaymentLogController as AdminPaymentLogController;
+use App\Http\Controllers\JobController; // Agregado</span>
 
 /*
 |--------------------------------------------------------------------------
@@ -139,3 +140,8 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function () {
             ->name('admin.payment-logs.statistics');
     });
 });
+
+Route::apiResource('jobs', JobController::class);
+Route::post('payments', [PaymentController::class, 'store']);
+
+?>
