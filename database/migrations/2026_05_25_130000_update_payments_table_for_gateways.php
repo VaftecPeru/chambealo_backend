@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -28,8 +29,7 @@ return new class extends Migration
                     $table->json('raw_response')->nullable()->after('currency');
                 }
                 if (!Schema::hasColumn('payments', 'user_id')) {
-                    $table->bigInteger('user_id')->nullable()->index();
-                    $table->foreign('user_id')->references('user_id')->on('users')->onDelete('set null');
+                    $table->unsignedBigInteger('user_id')->nullable()->index()->after('id');
                 }
                 if (!Schema::hasColumn('payments', 'tenant_id')) {
                     $table->string('tenant_id')->nullable()->index();
@@ -43,11 +43,11 @@ return new class extends Migration
             });
         }
 
-        // Update transactions table to add payment_id foreign key if needed
+        // Update transactions table to add payment_id if needed
         if (Schema::hasTable('transactions')) {
             Schema::table('transactions', function (Blueprint $table) {
                 if (!Schema::hasColumn('transactions', 'payment_id')) {
-                    $table->foreignId('payment_id')->nullable()->constrained('payments');
+                    $table->unsignedBigInteger('payment_id')->nullable()->index();
                 }
                 if (!Schema::hasColumn('transactions', 'raw_data')) {
                     $table->json('raw_data')->nullable();

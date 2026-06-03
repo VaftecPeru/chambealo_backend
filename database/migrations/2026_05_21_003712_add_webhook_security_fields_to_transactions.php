@@ -11,16 +11,36 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('transactions', function (Blueprint $table) {
-            $table->string('webhook_id')->nullable()->unique()->index(); // For replay attack detection
-            $table->string('raw_webhook_payload')->nullable(); // Store raw payload for audit
-            $table->boolean('signature_verified')->default(false)->index();
-            $table->string('source_ip')->nullable()->index();
-            $table->boolean('ip_trusted')->default(false)->index();
-            $table->text('webhook_headers')->nullable(); // Store relevant headers
-            $table->timestamp('webhook_processed_at')->nullable()->index();
-            $table->string('webhook_status')->nullable()->comment('success|failed|malformed|unauthorized|rate_limited');
-        });
+        // Solo agregar columnas sin intentar crear índices que podrían no existir
+        if (Schema::hasTable('transactions')) {
+            Schema::table('transactions', function (Blueprint $table) {
+                // Agregar solo si las columnas no existen
+                if (!Schema::hasColumn('transactions', 'webhook_id')) {
+                    $table->string('webhook_id')->nullable()->unique()->after('id');
+                }
+                if (!Schema::hasColumn('transactions', 'raw_webhook_payload')) {
+                    $table->string('raw_webhook_payload')->nullable()->after('webhook_id');
+                }
+                if (!Schema::hasColumn('transactions', 'signature_verified')) {
+                    $table->boolean('signature_verified')->default(false)->index()->after('raw_webhook_payload');
+                }
+                if (!Schema::hasColumn('transactions', 'source_ip')) {
+                    $table->string('source_ip')->nullable()->index()->after('signature_verified');
+                }
+                if (!Schema::hasColumn('transactions', 'ip_trusted')) {
+                    $table->boolean('ip_trusted')->default(false)->index()->after('source_ip');
+                }
+                if (!Schema::hasColumn('transactions', 'webhook_headers')) {
+                    $table->text('webhook_headers')->nullable()->after('ip_trusted');
+                }
+                if (!Schema::hasColumn('transactions', 'webhook_processed_at')) {
+                    $table->timestamp('webhook_processed_at')->nullable()->index()->after('webhook_headers');
+                }
+                if (!Schema::hasColumn('transactions', 'webhook_status')) {
+                    $table->string('webhook_status')->nullable()->comment('success|failed|malformed|unauthorized|rate_limited')->after('webhook_processed_at');
+                }
+            });
+        }
     }
 
     /**
@@ -29,21 +49,14 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('transactions', function (Blueprint $table) {
-            $table->dropIndex(['webhook_id']);
-            $table->dropIndex(['signature_verified']);
-            $table->dropIndex(['source_ip']);
-            $table->dropIndex(['ip_trusted']);
-            $table->dropIndex(['webhook_processed_at']);
-            $table->dropColumn([
-                'webhook_id',
-                'raw_webhook_payload',
-                'signature_verified',
-                'source_ip',
-                'ip_trusted',
-                'webhook_headers',
-                'webhook_processed_at',
-                'webhook_status',
-            ]);
+            $columns = ['webhook_id', 'raw_webhook_payload', 'signature_verified', 'source_ip', 'ip_trusted', 'webhook_headers', 'webhook_processed_at', 'webhook_status'];
+            
+            foreach ($columns as $column) {
+                if (Schema::hasColumn('transactions', $column)) {
+                    $table->dropColumn($column);
+                }
+            }
         });
     }
 };
+

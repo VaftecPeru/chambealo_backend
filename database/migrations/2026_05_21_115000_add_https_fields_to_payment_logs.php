@@ -14,14 +14,17 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('payment_logs', function (Blueprint $table) {
-            // HTTPS/TLS verification
-            $table->boolean('https_verified')->nullable()->after('replay_prevention_id');
-            $table->string('tls_version')->nullable()->after('https_verified');
-            
-            // Index for security queries
-            $table->index('https_verified');
-        });
+        if (Schema::hasTable('payment_logs')) {
+            Schema::table('payment_logs', function (Blueprint $table) {
+                // HTTPS/TLS verification
+                if (!Schema::hasColumn('payment_logs', 'https_verified')) {
+                    $table->boolean('https_verified')->nullable()->after('replay_prevention_id');
+                }
+                if (!Schema::hasColumn('payment_logs', 'tls_version')) {
+                    $table->string('tls_version')->nullable()->after('https_verified');
+                }
+            });
+        }
     }
 
     /**

@@ -14,23 +14,30 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('payment_logs', function (Blueprint $table) {
-            // Signature verification tracking
-            $table->boolean('signature_verified')->nullable()->after('webhook_id');
-            $table->string('signature_method')->nullable()->after('signature_verified');
-            $table->json('signature_details')->nullable()->after('signature_method');
-            
-            // Timestamp validation tracking
-            $table->boolean('timestamp_validated')->nullable()->after('signature_details');
-            
-            // Replay attack prevention tracking
-            $table->string('replay_prevention_id')->nullable()->unique()->after('timestamp_validated');
-            
-            // New indexes for security-related queries
-            $table->index('signature_verified');
-            $table->index('replay_prevention_id');
-            $table->index(['gateway', 'signature_verified']);
-        });
+        if (Schema::hasTable('payment_logs')) {
+            Schema::table('payment_logs', function (Blueprint $table) {
+                // Signature verification tracking
+                if (!Schema::hasColumn('payment_logs', 'signature_verified')) {
+                    $table->boolean('signature_verified')->nullable()->after('webhook_id');
+                }
+                if (!Schema::hasColumn('payment_logs', 'signature_method')) {
+                    $table->string('signature_method')->nullable()->after('signature_verified');
+                }
+                if (!Schema::hasColumn('payment_logs', 'signature_details')) {
+                    $table->json('signature_details')->nullable()->after('signature_method');
+                }
+                
+                // Timestamp validation tracking
+                if (!Schema::hasColumn('payment_logs', 'timestamp_validated')) {
+                    $table->boolean('timestamp_validated')->nullable()->after('signature_details');
+                }
+                
+                // Replay attack prevention tracking
+                if (!Schema::hasColumn('payment_logs', 'replay_prevention_id')) {
+                    $table->string('replay_prevention_id')->nullable()->unique()->after('timestamp_validated');
+                }
+            });
+        }
     }
 
     /**
@@ -38,18 +45,16 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('payment_logs', function (Blueprint $table) {
-            $table->dropIndex(['gateway', 'signature_verified']);
-            $table->dropIndex('payment_logs_replay_prevention_id_index');
-            $table->dropIndex('payment_logs_signature_verified_index');
-            $table->dropUnique(['replay_prevention_id']);
-            $table->dropColumn([
-                'signature_verified',
-                'signature_method',
-                'signature_details',
-                'timestamp_validated',
-                'replay_prevention_id',
-            ]);
-        });
+        if (Schema::hasTable('payment_logs')) {
+            Schema::table('payment_logs', function (Blueprint $table) {
+                // Drop columns if they exist
+                $columns = ['signature_verified', 'signature_method', 'signature_details', 'timestamp_validated', 'replay_prevention_id'];
+                foreach ($columns as $column) {
+                    if (Schema::hasColumn('payment_logs', $column)) {
+                        $table->dropColumn($column);
+                    }
+                }
+            });
+        }
     }
 };
