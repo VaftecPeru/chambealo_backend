@@ -113,6 +113,7 @@ class PayPalService implements PaymentServiceInterface
 
     /**
      * Verify webhook signature
+     * PayPal utiliza verificación vía API call
      * 
      * @param array $payload
      * @param string $signature
@@ -120,9 +121,75 @@ class PayPalService implements PaymentServiceInterface
      */
     public function verifyWebhookSignature(array $payload, string $signature): bool
     {
-        // PayPal webhook verification should be done via API call
-        // For now, return true - implement proper verification if needed
-        return true;
+        try {
+            $transmissionId = request()->header('PAYPAL-TRANSMISSION-ID');
+            $transmissionTime = request()->header('PAYPAL-TRANSMISSION-TIME');
+            $certUrl = request()->header('PAYPAL-CERT-URL');
+            $transmissionSig = request()->header('PAYPAL-TRANSMISSION-SIG');
+
+            if (!$transmissionId || !$transmissionTime || !$certUrl || !$transmissionSig) {
+                Log::warning('PayPal webhook: missing required headers for verification');
+                return false;
+            }
+
+            // Validar timestamp (anti-replay)
+            $transmissionTimeObj = \DateTime::createFromFormat('Y-m-d\TH:i:s\Z', $transmissionTime);
+            if (!$transmissionTimeObj) {
+                Log::warning('PayPal webhook: invalid transmission time format');
+                return false;
+            }
+
+            $now = new \DateTime('now', new \DateTimeZone('UTC'));
+            $diff = $now->getTimestamp() - $transmissionTimeObj->getTimestamp();
+            $maxDiffSeconds = 300; // 5 minutos
+
+            if (abs($diff) > $maxDiffSeconds) {
+                Log::warning('PayPal webhook: timestamp outside valid window', [
+                    'transmission_time' => $transmissionTime,
+                    'current_time' => $now->format('Y-m-d\TH:i:s\Z'),
+                    'diff_seconds' => $diff,
+                ]);
+                return false;
+            }
+
+            // Construir mensaje a verificar
+            $webhookId = config('payment.paypal.webhook_id');
+            $expectedSig = hash_hmac(
+                'sha256',
+                "{$transmissionId}|{$transmissionTime}|{$webhookId}|" . $this->hashWebhookBody($payload),
+                $this->clientSecret,
+                true
+            );
+
+            // Comparar firmas con hash_equals para prevenir timing attacks
+            $isValid = hash_equals(
+                base64_encode($expectedSig),
+                $transmissionSig
+            );
+
+            if (!$isValid) {
+                Log::warning('PayPal webhook: signature verification failed');
+            }
+
+            return $isValid;
+
+        } catch (\Exception $e) {
+            Log::error('PayPal webhook signature verification error', [
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Hash del cuerpo del webhook para PayPal
+     * 
+     * @param array $payload
+     * @return string
+     */
+    private function hashWebhookBody(array $payload): string
+    {
+        return hash('sha256', json_encode($payload));
     }
 
     /**

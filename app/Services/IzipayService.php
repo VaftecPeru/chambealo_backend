@@ -82,12 +82,59 @@ class IzipayService implements PaymentServiceInterface
      */
     public function confirmPayment(string $transactionId, array $additionalData = []): array
     {
-        // Izipay confirmation is typically done via webhook
-        return ['status' => 'pending', 'message' => 'Confirmation via webhook'];
+        try {
+            return $this->getStatus($transactionId);
+        } catch (\Exception $e) {
+            Log::error('Izipay confirmPayment error', [
+                'error' => $e->getMessage(),
+                'transaction_id' => $transactionId,
+            ]);
+            return ['status' => 'unknown', 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Get payment status from Izipay API
+     * 
+     * @param string $transactionId
+     * @return array
+     * @throws \Exception
+     */
+    public function getStatus(string $transactionId): array
+    {
+        try {
+            $response = Http::withBasicAuth($this->clientId, $this->clientSecret)
+                ->get("{$this->apiUrl}/api-payment/V4/Charge/GetPaymentDetails", [
+                    'uuid' => $transactionId,
+                ]);
+
+            if ($response->failed()) {
+                throw new \Exception('Failed to get payment status: ' . $response->body());
+            }
+
+            $data = $response->json();
+            $answer = $data['answer'] ?? $data;
+
+            return [
+                'status' => $this->mapIzipayStatus($answer['orderStatus'] ?? 'UNKNOWN'),
+                'transaction_id' => $answer['transactions'][0]['uuid'] ?? $transactionId,
+                'amount' => ($answer['amount'] ?? 0) / 100,
+                'currency' => $answer['currency'] ?? 'PEN',
+                'raw_data' => $answer,
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Izipay getStatus error', [
+                'error' => $e->getMessage(),
+                'transaction_id' => $transactionId,
+            ]);
+            throw $e;
+        }
     }
 
     /**
      * Verify webhook HMAC SHA256 signature (CRITICAL FOR SECURITY)
+     * También valida timestamp para prevenir replay attacks
      * 
      * @param array $payload
      * @param string $signature
@@ -96,13 +143,48 @@ class IzipayService implements PaymentServiceInterface
     public function verifyWebhookSignature(array $payload, string $signature): bool
     {
         if (!isset($payload['kr-answer'])) {
+            Log::warning('Izipay webhook: missing kr-answer');
             return false;
         }
 
+        // Obtener timestamp del webhook
         $krAnswer = $payload['kr-answer'];
-        $calculatedHash = hash_hmac('sha256', $krAnswer, $this->hashKey);
+        $data = json_decode($krAnswer, true);
 
-        return hash_equals($calculatedHash, $signature);
+        if (!$data) {
+            Log::warning('Izipay webhook: invalid kr-answer JSON');
+            return false;
+        }
+
+        // Validar ventana de tiempo (anti-replay attacks)
+        if (isset($data['orderDetails']['creationDate'])) {
+            $timestamp = (int)($data['orderDetails']['creationDate'] / 1000); // Convertir de ms a seconds
+            $now = time();
+            $diff = abs($now - $timestamp);
+            $maxDiffSeconds = 300; // 5 minutos
+
+            if ($diff > $maxDiffSeconds) {
+                Log::warning('Izipay webhook: timestamp outside valid window', [
+                    'timestamp' => $timestamp,
+                    'current' => $now,
+                    'diff_seconds' => $diff,
+                ]);
+                return false;
+            }
+        }
+
+        // Verificar HMAC-SHA256
+        $calculatedHash = hash_hmac('sha256', $krAnswer, $this->hashKey);
+        $isValid = hash_equals($calculatedHash, $signature);
+
+        if (!$isValid) {
+            Log::warning('Izipay webhook: signature verification failed', [
+                'expected' => substr($calculatedHash, 0, 10) . '...',
+                'received' => substr($signature, 0, 10) . '...',
+            ]);
+        }
+
+        return $isValid;
     }
 
     /**

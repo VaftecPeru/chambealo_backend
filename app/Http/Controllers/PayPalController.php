@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse; // Se agregó esta importación
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -41,9 +42,9 @@ class PayPalController extends Controller
      * Create a PayPal order for payment processing
      *
      * @param Request $request
-     * @return \Illuminate\Http\Response
+     * @return JsonResponse
      */
-    public function createOrder(Request $request): \Illuminate\Http\Response
+    public function createOrder(Request $request): JsonResponse // Corregido el tipo de retorno
     {
         $tenantId = $this->getTenantId();
 
@@ -107,9 +108,9 @@ class PayPalController extends Controller
      * Capture a completed PayPal order
      *
      * @param Request $request
-     * @return \Illuminate\Http\Response
+     * @return JsonResponse
      */
-    public function captureOrder(Request $request): \Illuminate\Http\Response
+    public function captureOrder(Request $request): JsonResponse // Corregido el tipo de retorno
     {
         $orderID = $request->orderID;
         $accessToken = $this->getPayPalAccessToken();
@@ -185,9 +186,9 @@ class PayPalController extends Controller
      * Handle PayPal webhook events
      *
      * @param Request $request
-     * @return \Illuminate\Http\Response
+     * @return JsonResponse
      */
-    public function handleWebhook(Request $request): \Illuminate\Http\Response
+    public function handleWebhook(Request $request): JsonResponse // Corregido el tipo de retorno
     {
         // NUEVO: Registrar HTTPS verification
         $httpsInfo = $this->checkHttps($request);

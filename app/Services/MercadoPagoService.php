@@ -127,6 +127,7 @@ class MercadoPagoService implements PaymentServiceInterface
     /**
      * Verify webhook HMAC SHA256 signature (CRITICAL FOR SECURITY)
      * MercadoPago format: "timestamp|signature"
+     * También valida timestamp para prevenir replay attacks
      * 
      * @param array $payload
      * @param string $signature Format: "timestamp|signature"
@@ -147,6 +148,21 @@ class MercadoPagoService implements PaymentServiceInterface
         }
 
         list($timestamp, $receivedSignature) = $parts;
+
+        // Validar ventana de tiempo (anti-replay attacks)
+        $timestamp = (int)$timestamp;
+        $now = time();
+        $diff = abs($now - $timestamp);
+        $maxDiffSeconds = 300; // 5 minutos
+
+        if ($diff > $maxDiffSeconds) {
+            Log::warning('MercadoPago webhook: timestamp outside valid window', [
+                'timestamp' => $timestamp,
+                'current' => $now,
+                'diff_seconds' => $diff,
+            ]);
+            return false;
+        }
 
         // Calculate expected signature: HMAC-SHA256("timestamp\npayload_json", webhook_secret)
         $messageToSign = "{$timestamp}\n" . json_encode($payload['data']);

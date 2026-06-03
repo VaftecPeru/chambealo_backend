@@ -71,6 +71,14 @@ class Order extends Model
     }
 
     /**
+     * Get the jobs associated with this order.
+     */
+    public function jobs(): HasMany
+    {
+        return $this->hasMany(Job::class, 'order_id', 'id');
+    }
+
+    /**
      * Mark order as paid.
      */
     public function markAsPaid(): void
