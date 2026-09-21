@@ -74,6 +74,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     // Order routes
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{orderId}', [OrderController::class, 'show']);
+    Route::post('/orders', [OrderController::class, 'store']);
 
     // Unified Payment Endpoints (NEW)
     Route::prefix('payment')->group(function () {
