@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\PaymentController as ApiPaymentController;
 use App\Http\Controllers\PaymentController;
@@ -69,6 +70,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/logout-all', [AuthController::class, 'logoutAllDevices']);
     Route::get('/profile', [AuthController::class, 'profile']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
+
+    // Order routes
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/{orderId}', [OrderController::class, 'show']);
 
     // Unified Payment Endpoints (NEW)
     Route::prefix('payment')->group(function () {
