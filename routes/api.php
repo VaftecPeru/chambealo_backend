@@ -64,7 +64,7 @@ Route::prefix('v1')->group(function () {
 });
 
 // Protected routes (auth required)
-Route::middleware(['auth:sanctum', 'active'])->group(function () {
+Route::middleware(['auth:api', 'active'])->group(function () {
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAllDevices']);
