@@ -75,6 +75,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{orderId}', [OrderController::class, 'show']);
     Route::post('/orders', [OrderController::class, 'store']);
+    Route::patch('/orders/{orderId}/cancel', [OrderController::class, 'cancel']);
 
     // Unified Payment Endpoints (NEW)
     Route::prefix('payment')->group(function () {
@@ -113,6 +114,8 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
 
 // Vendor and admin routes
 Route::middleware(['auth:sanctum', 'active', 'role:vendor,admin'])->group(function () {
+    // Order management
+    Route::patch('/orders/{orderId}/status', [OrderController::class, 'updateStatus']);
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{product}', [ProductController::class, 'update']);
     Route::delete('/products/{product}', [ProductController::class, 'destroy']);
