@@ -13,6 +13,13 @@ class OrderFlowTest extends TestCase
 {
     use RefreshDatabase;
 
+    private function asJwt(User $user): static
+    {
+        $token = auth('api')->login($user);
+
+        return $this->withHeader('Authorization', 'Bearer ' . $token);
+    }
+
     private function createCatalog(User $owner): Product
     {
         $categoryId = DB::table('categories')->insertGetId([
@@ -47,7 +54,7 @@ class OrderFlowTest extends TestCase
         $user = User::factory()->create();
         $product = $this->createCatalog($user);
 
-        $response = $this->actingAs($user, 'api')->postJson('/api/orders', [
+        $response = $this->asJwt($user)->postJson('/api/orders', [
             'items' => [[
                 'product_id' => $product->product_id,
                 'quantity' => 2,
@@ -74,7 +81,7 @@ class OrderFlowTest extends TestCase
         $user = User::factory()->create();
         $product = $this->createCatalog($user);
 
-        $created = $this->actingAs($user, 'api')->postJson('/api/orders', [
+        $created = $this->asJwt($user)->postJson('/api/orders', [
             'items' => [[
                 'product_id' => $product->product_id,
                 'quantity' => 3,
@@ -86,7 +93,7 @@ class OrderFlowTest extends TestCase
         $orderId = $created->json('order.order_id');
         $this->assertSame(7, (int) $product->fresh()->stock);
 
-        $this->actingAs($user, 'api')
+        $this->asJwt($user)
             ->patchJson("/api/orders/{$orderId}/cancel")
             ->assertOk()
             ->assertJsonPath('order.status', Order::STATUS_CANCELLED);
@@ -113,7 +120,7 @@ class OrderFlowTest extends TestCase
             'discount' => 0,
         ]);
 
-        $this->actingAs($intruder, 'api')
+        $this->asJwt($intruder)
             ->getJson("/api/orders/{$order->order_id}")
             ->assertNotFound();
     }
