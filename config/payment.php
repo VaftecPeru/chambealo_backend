@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'frontend_url' => env('FRONTEND_URL', env('APP_URL', 'http://localhost')),
+    'default_currency' => env('PAYMENT_DEFAULT_CURRENCY', 'PEN'),
     'izipay' => [
         'environment' => env('IZIPAY_ENV', 'sandbox'),
         'client_id' => env('IZIPAY_CLIENT_ID'),
