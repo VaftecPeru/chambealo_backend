@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\AuthController;
@@ -11,7 +10,7 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\PayPalController;
 use App\Http\Controllers\Admin\PaymentLogController as AdminPaymentLogController;
-use App\Http\Controllers\JobController; // Agregado</span>
+use App\Http\Controllers\JobController;
 
 /*
 |--------------------------------------------------------------------------
@@ -113,7 +112,7 @@ Route::middleware(['auth:api', 'active'])->group(function () {
 });
 
 // Vendor and admin routes
-Route::middleware(['auth:sanctum', 'active', 'role:vendor,admin'])->group(function () {
+Route::middleware(['auth:api', 'active', 'role:vendor,admin'])->group(function () {
     // Order management
     Route::patch('/orders/{orderId}/status', [OrderController::class, 'updateStatus']);
     Route::post('/products', [ProductController::class, 'store']);
@@ -126,7 +125,7 @@ Route::middleware(['auth:sanctum', 'active', 'role:vendor,admin'])->group(functi
 });
 
 // Admin only routes
-Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function () {
+Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
     Route::post('/categories', [CategoryController::class, 'store']);
     Route::put('/categories/{category}', [CategoryController::class, 'update']);
     Route::delete('/categories/{category}', [CategoryController::class, 'destroy']);
@@ -150,7 +149,10 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function () {
     });
 });
 
-Route::apiResource('jobs', JobController::class);
-Route::post('payments', [PaymentController::class, 'store']);
+Route::middleware(['auth:api', 'active'])->group(function () {
+    Route::apiResource('jobs', JobController::class);
+    Route::post('payments', [PaymentController::class, 'store'])
+        ->middleware('throttle:10,1');
+});
 
 ?>
