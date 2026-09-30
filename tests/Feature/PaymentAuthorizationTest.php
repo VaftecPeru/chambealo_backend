@@ -11,6 +11,13 @@ class PaymentAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
 
+    private function asJwt(User $user): static
+    {
+        $token = auth('api')->login($user);
+
+        return $this->withHeader('Authorization', 'Bearer ' . $token);
+    }
+
     public function test_user_cannot_start_payment_for_another_users_order(): void
     {
         $owner = User::factory()->create();
@@ -30,7 +37,7 @@ class PaymentAuthorizationTest extends TestCase
             'discount' => 0,
         ]);
 
-        $this->actingAs($intruder, 'api')
+        $this->asJwt($intruder)
             ->postJson('/api/payment/session', [
                 'gateway' => 'paypal',
                 'order_id' => $order->id,
