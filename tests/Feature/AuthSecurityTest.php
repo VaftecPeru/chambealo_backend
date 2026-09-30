@@ -15,7 +15,7 @@ class AuthSecurityTest extends TestCase
     {
         $user = User::factory()->create([
             'email' => 'test@example.com',
-            'password' => Hash::make('password')
+            'password_hash' => Hash::make('password')
         ]);
 
         // Intentar login múltiples veces

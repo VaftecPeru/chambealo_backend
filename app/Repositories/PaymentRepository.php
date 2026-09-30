@@ -75,6 +75,18 @@ class PaymentRepository
     }
 
     /**
+     * Create or refresh a pending payment for an existing order.
+     * Keeps the unique order_id constraint idempotent across retries.
+     */
+    public function upsertPaymentForOrder(array $data): Payment
+    {
+        return Payment::updateOrCreate(
+            ['order_id' => $data['order_id']],
+            $data
+        );
+    }
+
+    /**
      * Get payment by order ID
      */
     public function getPaymentByOrderId(string $orderId): ?Payment
@@ -93,9 +105,11 @@ class PaymentRepository
     /**
      * Update payment status and optionally create transaction
      */
-    public function updatePaymentStatus(string $orderId, string $status, array $rawResponse = null): Payment
+    public function updatePaymentStatus(string $identifier, string $status, array $rawResponse = null): Payment
     {
-        $payment = Payment::where('order_id', $orderId)->firstOrFail();
+        $payment = Payment::where('payment_id', $identifier)
+            ->orWhere('order_id', $identifier)
+            ->firstOrFail();
         $payment->status = $status;
         
         if ($rawResponse) {
@@ -105,10 +119,16 @@ class PaymentRepository
         $payment->save();
 
         // Create transaction when payment is completed
-        if (strtolower($status) === 'completed' && $rawResponse) {
+        if (in_array(strtolower($status), ['completed', 'paid', 'approved'], true) && $rawResponse) {
+            $transactionId = $rawResponse['transaction_id'] ?? $rawResponse['id'] ?? null;
+
+            if ($transactionId && Transaction::where('transaction_id', $transactionId)->exists()) {
+                return $payment;
+            }
+
             $this->logTransaction([
                 'payment_id' => $payment->id,
-                'transaction_id' => $rawResponse['transaction_id'] ?? $rawResponse['id'] ?? null,
+                'transaction_id' => $transactionId,
                 'order_id' => $payment->order_id,
                 'user_id' => $payment->user_id,
                 'tenant_id' => $payment->tenant_id,
