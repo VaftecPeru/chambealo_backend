@@ -22,6 +22,7 @@ class Order extends Model
 
     protected $fillable = [
         'order_id',
+        'tenant_id',
         'user_id',
         'total_amount',
         'taxes',

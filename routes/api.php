@@ -1,7 +1,7 @@
 <?php
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\PaymentController as ApiPaymentController;
 use App\Http\Controllers\PaymentController;
@@ -10,7 +10,7 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\PayPalController;
 use App\Http\Controllers\Admin\PaymentLogController as AdminPaymentLogController;
-use App\Http\Controllers\JobController; // Agregado</span>
+use App\Http\Controllers\JobController;
 
 /*
 |--------------------------------------------------------------------------
@@ -19,7 +19,7 @@ use App\Http\Controllers\JobController; // Agregado</span>
 */
 
 // Authentication routes
-Route::middleware('throttle:10,1')->group(function () {
+Route::middleware('throttle:5,1')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/refresh', [AuthController::class, 'refresh']);
@@ -63,12 +63,18 @@ Route::prefix('v1')->group(function () {
 });
 
 // Protected routes (auth required)
-Route::middleware(['auth:sanctum', 'active'])->group(function () {
+Route::middleware(['auth:api', 'active'])->group(function () {
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAllDevices']);
     Route::get('/profile', [AuthController::class, 'profile']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
+
+    // Order routes
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/{orderId}', [OrderController::class, 'show']);
+    Route::post('/orders', [OrderController::class, 'store']);
+    Route::patch('/orders/{orderId}/cancel', [OrderController::class, 'cancel']);
 
     // Unified Payment Endpoints (NEW)
     Route::prefix('payment')->group(function () {
@@ -106,7 +112,9 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
 });
 
 // Vendor and admin routes
-Route::middleware(['auth:sanctum', 'active', 'role:vendor,admin'])->group(function () {
+Route::middleware(['auth:api', 'active', 'role:vendor,admin'])->group(function () {
+    // Order management
+    Route::patch('/orders/{orderId}/status', [OrderController::class, 'updateStatus']);
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{product}', [ProductController::class, 'update']);
     Route::delete('/products/{product}', [ProductController::class, 'destroy']);
@@ -117,7 +125,7 @@ Route::middleware(['auth:sanctum', 'active', 'role:vendor,admin'])->group(functi
 });
 
 // Admin only routes
-Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function () {
+Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
     Route::post('/categories', [CategoryController::class, 'store']);
     Route::put('/categories/{category}', [CategoryController::class, 'update']);
     Route::delete('/categories/{category}', [CategoryController::class, 'destroy']);
@@ -140,8 +148,5 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function () {
             ->name('admin.payment-logs.statistics');
     });
 });
-
-Route::apiResource('jobs', JobController::class);
-Route::post('payments', [PaymentController::class, 'store']);
 
 ?>
