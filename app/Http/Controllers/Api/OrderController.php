@@ -3,147 +3,158 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Product;
 use App\Models\Order;
+use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class OrderController extends Controller
 {
-    /**
-     * Listar los pedidos del usuario autenticado.
-     */
     public function index(Request $request)
     {
-        $orders = Order::where('user_id', $request->user()->user_id)
-            ->orderBy('created_at', 'desc')
+        $user = $request->user('api') ?? $request->user();
+        $tenantId = app('tenant_id');
+
+        $orders = Order::where('user_id', $user->user_id)
+            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
+            ->orderByDesc('created_at')
             ->get();
 
         return response()->json([
             'success' => true,
-            'orders' => $orders
+            'orders' => $orders,
         ]);
     }
 
-    /**
-     * Mostrar un pedido específico del usuario autenticado.
-     */
     public function show(Request $request, string $orderId)
     {
+        $user = $request->user('api') ?? $request->user();
+        $tenantId = app('tenant_id');
+
         $order = Order::where('order_id', $orderId)
-            ->where('user_id', $request->user()->user_id)
+            ->where('user_id', $user->user_id)
+            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
             ->first();
 
         if (!$order) {
             return response()->json([
                 'success' => false,
-                'message' => 'Pedido no encontrado.'
+                'message' => 'Pedido no encontrado.',
             ], 404);
         }
 
         return response()->json([
             'success' => true,
-            'order' => $order
+            'order' => $order,
         ]);
     }
 
-    /**
-    * Crear un nuevo pedido para el usuario autenticado.
-    */
     public function store(Request $request)
     {
         $validated = $request->validate([
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|integer',
-            'items.*.quantity' => 'required|integer|min:1',
-
+            'items.*.quantity' => 'required|integer|min:1|max:999',
             'shipping_address' => 'required|array',
             'billing_address' => 'required|array',
-
-            'taxes' => 'nullable|numeric|min:0',
-            'shipping_cost' => 'nullable|numeric|min:0',
             'coupon_code' => 'nullable|string|max:255',
-            'discount' => 'nullable|numeric|min:0',
         ]);
 
-        $orderItems = [];
-        $subtotal = 0;
+        $user = $request->user('api') ?? $request->user();
+        $tenantId = app('tenant_id');
 
-        foreach ($validated['items'] as $item) {
-            $product = Product::active()
-            ->where('product_id', $item['product_id'])
-            ->first();
+        $order = DB::transaction(function () use ($validated, $user, $tenantId) {
+            $orderItems = [];
+            $subtotal = 0;
 
-        if (!$product) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Uno de los productos no existe o no está disponible.'
-            ], 422);
-        }
+            foreach ($validated['items'] as $item) {
+                $product = Product::active()
+                    ->where('product_id', $item['product_id'])
+                    ->when($tenantId, function ($query) use ($tenantId) {
+                        $query->where(function ($tenantQuery) use ($tenantId) {
+                            $tenantQuery->where('tenant_id', $tenantId)
+                                ->orWhereNull('tenant_id');
+                        });
+                    })
+                    ->lockForUpdate()
+                    ->first();
 
-        if ($product->stock < $item['quantity']) {
-            return response()->json([
-                'success' => false,
-                'message' => "Stock insuficiente para el producto {$product->name}."
-            ], 422);
-        }
+                if (!$product) {
+                    abort(response()->json([
+                        'success' => false,
+                        'message' => 'Uno de los productos no existe o no está disponible.',
+                    ], 422));
+                }
 
-        $price = (float) $product->price;
-        $itemSubtotal = $price * $item['quantity'];
+                if ((int) $product->stock < (int) $item['quantity']) {
+                    abort(response()->json([
+                        'success' => false,
+                        'message' => "Stock insuficiente para el producto {$product->name}.",
+                    ], 422));
+                }
 
-        $orderItems[] = [
-            'product_id' => $product->product_id,
-            'name' => $product->name,
-            'price' => $price,
-            'quantity' => $item['quantity'],
-            'subtotal' => $itemSubtotal,
-        ];
+                $price = (float) $product->price;
+                $quantity = (int) $item['quantity'];
+                $itemSubtotal = $price * $quantity;
 
-        $subtotal += $itemSubtotal;
-        }
+                $orderItems[] = [
+                    'product_id' => $product->product_id,
+                    'name' => $product->name,
+                    'price' => $price,
+                    'quantity' => $quantity,
+                    'subtotal' => $itemSubtotal,
+                ];
 
-        $taxes = (float) ($validated['taxes'] ?? 0);
-        $shippingCost = (float) ($validated['shipping_cost'] ?? 0);
-        $discount = (float) ($validated['discount'] ?? 0);
+                $subtotal += $itemSubtotal;
 
-        $totalAmount = max(
-            0,
-            $subtotal + $taxes + $shippingCost - $discount
-            );
+                $product->decrement('stock', $quantity);
+            }
 
-        $order = Order::create([
-            'order_id' => 'ORD-' . strtoupper(uniqid()),
-            'user_id' => $request->user()->user_id,
-            'total_amount' => $totalAmount,
-            'taxes' => $taxes,
-            'shipping_cost' => $shippingCost,
-            'status' => Order::STATUS_CHECKOUT,
-            'items' => $orderItems,
-            'shipping_address' => $validated['shipping_address'],
-            'billing_address' => $validated['billing_address'],
-            'coupon_code' => $validated['coupon_code'] ?? null,
-            'discount' => $discount,
-        ]);
+            // Regla actual: impuestos, envío y descuentos se calculan únicamente
+            // en backend. Hasta que existan servicios de shipping/cupones, quedan en 0.
+            $taxes = 0.0;
+            $shippingCost = 0.0;
+            $discount = 0.0;
+            $totalAmount = max(0, $subtotal + $taxes + $shippingCost - $discount);
+
+            return Order::create([
+                'order_id' => 'ORD-' . strtoupper(Str::uuid()->toString()),
+                'tenant_id' => $tenantId,
+                'user_id' => $user->user_id,
+                'total_amount' => $totalAmount,
+                'taxes' => $taxes,
+                'shipping_cost' => $shippingCost,
+                'status' => Order::STATUS_CHECKOUT,
+                'items' => $orderItems,
+                'shipping_address' => $validated['shipping_address'],
+                'billing_address' => $validated['billing_address'],
+                'coupon_code' => $validated['coupon_code'] ?? null,
+                'discount' => $discount,
+            ]);
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Pedido creado correctamente.',
-            'order' => $order
+            'order' => $order,
         ], 201);
     }
 
-    /**
-     * Cancelar un pedido del usuario autenticado.
-     */
     public function cancel(Request $request, string $orderId)
     {
+        $user = $request->user('api') ?? $request->user();
+        $tenantId = app('tenant_id');
+
         $order = Order::where('order_id', $orderId)
-            ->where('user_id', $request->user()->user_id)
+            ->where('user_id', $user->user_id)
+            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
             ->first();
 
         if (!$order) {
             return response()->json([
                 'success' => false,
-                'message' => 'Pedido no encontrado.'
+                'message' => 'Pedido no encontrado.',
             ], 404);
         }
 
@@ -156,69 +167,79 @@ class OrderController extends Controller
         if (!in_array($order->status, $allowedStatuses, true)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Este pedido ya no puede ser cancelado.'
+                'message' => 'Este pedido ya no puede ser cancelado.',
             ], 422);
         }
 
-        $order->markAsCancelled();
+        DB::transaction(function () use ($order, $tenantId) {
+            $lockedOrder = Order::whereKey($order->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($lockedOrder->status === Order::STATUS_CANCELLED) {
+                return;
+            }
+
+            foreach (($lockedOrder->items ?? []) as $item) {
+                Product::where('product_id', $item['product_id'])
+                    ->when($tenantId, function ($query) use ($tenantId) {
+                        $query->where(function ($tenantQuery) use ($tenantId) {
+                            $tenantQuery->where('tenant_id', $tenantId)
+                                ->orWhereNull('tenant_id');
+                        });
+                    })
+                    ->increment('stock', (int) $item['quantity']);
+            }
+
+            $lockedOrder->markAsCancelled();
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Pedido cancelado correctamente.',
-            'order' => $order->fresh()
+            'order' => $order->fresh(),
         ]);
     }
 
-    /**
-     * Actualizar el estado logístico de un pedido.
-     * Disponible para vendor y admin mediante middleware.
-     */
     public function updateStatus(Request $request, string $orderId)
     {
-    $validated = $request->validate([
-        'status' => 'required|in:shipped,delivered',
-    ]);
+        $validated = $request->validate([
+            'status' => 'required|in:shipped,delivered',
+        ]);
 
-        $order = Order::where('order_id', $orderId)->first();
+        $tenantId = app('tenant_id');
+
+        $order = Order::where('order_id', $orderId)
+            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
+            ->first();
 
         if (!$order) {
             return response()->json([
                 'success' => false,
-                'message' => 'Pedido no encontrado.'
+                'message' => 'Pedido no encontrado.',
             ], 404);
         }
 
-        if (
-            $validated['status'] === Order::STATUS_SHIPPED &&
-            $order->status !== Order::STATUS_PAID
-        ) {
+        if ($validated['status'] === Order::STATUS_SHIPPED && $order->status !== Order::STATUS_PAID) {
             return response()->json([
                 'success' => false,
-                'message' => 'Solo un pedido pagado puede marcarse como enviado.'
+                'message' => 'Solo un pedido pagado puede marcarse como enviado.',
             ], 422);
         }
 
-        if (
-            $validated['status'] === Order::STATUS_DELIVERED &&
-            $order->status !== Order::STATUS_SHIPPED
-        ) {
+        if ($validated['status'] === Order::STATUS_DELIVERED && $order->status !== Order::STATUS_SHIPPED) {
             return response()->json([
                 'success' => false,
-                'message' => 'Solo un pedido enviado puede marcarse como entregado.'
+                'message' => 'Solo un pedido enviado puede marcarse como entregado.',
             ], 422);
         }
 
-        if ($validated['status'] === Order::STATUS_SHIPPED) {
-            $order->markAsShipped();
-        } else {
-            $order->markAsDelivered();
-        }
+        $validated['status'] === Order::STATUS_SHIPPED
+            ? $order->markAsShipped()
+            : $order->markAsDelivered();
 
         return response()->json([
             'success' => true,
             'message' => 'Estado del pedido actualizado correctamente.',
-            'order' => $order->fresh()
+            'order' => $order->fresh(),
         ]);
     }
-
 }
