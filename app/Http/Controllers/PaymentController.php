@@ -9,25 +9,17 @@ use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Routing\Controllers\Middleware;
-use Illuminate\Routing\Controllers\HasMiddleware;
 
-class PaymentController extends Controller implements HasMiddleware
+class PaymentController extends Controller
 {
     protected PaymentRepository $paymentRepository;
 
     public function __construct(PaymentRepository $paymentRepository)
     {
         $this->paymentRepository = $paymentRepository;
-    }
-
-    public static function middleware(): array
-    {
-        return [
-            new Middleware('auth:sanctum', only: ['createSession', 'confirm']),
-            new Middleware('throttle:5,1', only: ['createSession', 'confirm']),
-            new Middleware('throttle:20,1', only: ['webhook']),
-        ];
+        $this->middleware('auth:api')->only(['createSession', 'confirm']);
+        $this->middleware('throttle:5,1')->only(['createSession', 'confirm']);
+        $this->middleware('throttle:20,1')->only(['webhook']);
     }
 
     /**
@@ -39,54 +31,81 @@ class PaymentController extends Controller implements HasMiddleware
      */
     public function createSession(Request $request): JsonResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'gateway' => 'required|in:izipay,mercadopago,paypal',
-            'order_id' => 'required|exists:orders,id',
-            'amount' => 'required|numeric|min:0.01',
-            'currency' => 'required|string|size:3',
-            'email' => 'required|email',
-            'description' => 'nullable|string',
+            'order_id' => 'required|integer|exists:orders,id',
+            'description' => 'nullable|string|max:255',
         ]);
 
         try {
-            // Verify order exists and belongs to user
-            $order = Order::findOrFail($request->order_id);
+            $user = auth('api')->user();
+            $tenantId = app('tenant_id');
 
-            // Get the payment gateway service
-            $gateway = PaymentFactory::make($request->gateway);
+            $orderQuery = Order::whereKey($validated['order_id'])
+                ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId));
 
-            // Generate payment session/token
+            if (!$user->isAdmin()) {
+                $orderQuery->where('user_id', $user->user_id);
+            }
+
+            $order = $orderQuery->first();
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado o no autorizado.',
+                ], 404);
+            }
+
+            if (!in_array($order->status, [Order::STATUS_CHECKOUT, Order::STATUS_PAYMENT_PENDING], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El pedido no está disponible para iniciar pago.',
+                ], 422);
+            }
+
+            $amount = (float) $order->total_amount;
+            $currency = config('payment.default_currency', 'PEN');
+            $email = $order->user?->email ?? $user->email;
+            $frontendUrl = rtrim(config('payment.frontend_url', config('app.url')), '/');
+
+            $gateway = PaymentFactory::make($validated['gateway']);
+
             $result = $gateway->createPayment([
-                'order_id' => $request->order_id,
-                'amount' => $request->amount,
-                'currency' => $request->currency,
-                'email' => $request->email,
-                'description' => $request->description,
-                'user_id' => auth()->id(),
-                'tenant_id' => $order->tenant_id ?? null,
-                'return_url' => route('api.payment.confirm'),
-                'cancel_url' => route('api.payment.cancel'),
-                'webhook_url' => route('api.payment.webhook', ['gateway' => $request->gateway]),
+                'order_id' => $order->order_id,
+                'amount' => $amount,
+                'currency' => $currency,
+                'email' => $email,
+                'description' => $validated['description'] ?? "Pedido {$order->order_id}",
+                'user_id' => $user->user_id,
+                'tenant_id' => $order->tenant_id,
+                'return_url' => $frontendUrl . '/checkout?payment=success',
+                'cancel_url' => $frontendUrl . '/checkout?payment=cancelled',
+                'webhook_url' => route('api.payment.webhook', ['gateway' => $validated['gateway']]),
             ]);
 
-            // Create payment record in database
-            $payment = $this->paymentRepository->createPayment([
-                'order_id' => $request->order_id,
-                'gateway' => $request->gateway,
+            $payment = $this->paymentRepository->upsertPaymentForOrder([
+                'order_id' => $order->order_id,
+                'gateway' => $validated['gateway'],
                 'payment_id' => $result['id'] ?? $result['payment_id'] ?? null,
                 'status' => 'pending',
-                'amount' => $request->amount,
-                'currency' => $request->currency,
-                'email' => $request->email,
-                'user_id' => auth()->id(),
-                'tenant_id' => $order->tenant_id ?? null,
+                'amount' => $amount,
+                'currency' => $currency,
+                'email' => $email,
+                'user_id' => $user->user_id,
+                'tenant_id' => $order->tenant_id,
                 'raw_response' => $result,
             ]);
 
+            if ($order->status === Order::STATUS_CHECKOUT) {
+                $order->update(['status' => Order::STATUS_PAYMENT_PENDING]);
+            }
+
             Log::info('Payment session created', [
                 'payment_id' => $payment->id,
-                'gateway' => $request->gateway,
-                'amount' => $request->amount,
+                'order_id' => $order->order_id,
+                'gateway' => $validated['gateway'],
+                'amount' => $amount,
             ]);
 
             return response()->json([
@@ -97,19 +116,21 @@ class PaymentController extends Controller implements HasMiddleware
                     'form_token' => $result['form_token'] ?? null,
                     'init_point' => $result['init_point'] ?? $result['sandbox_init_point'] ?? null,
                     'approve_url' => $result['approve_url'] ?? null,
-                    'redirect_url' => $result['init_point'] ?? $result['sandbox_init_point'] ?? null,
-                ]
+                    'redirect_url' => $result['approve_url']
+                        ?? $result['init_point']
+                        ?? $result['sandbox_init_point']
+                        ?? null,
+                ],
             ]);
-
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Payment session creation failed', [
                 'error' => $e->getMessage(),
-                'gateway' => $request->gateway,
+                'gateway' => $validated['gateway'] ?? null,
             ]);
 
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage(),
+                'message' => 'No se pudo iniciar el pago.',
             ], 500);
         }
     }
@@ -123,36 +144,47 @@ class PaymentController extends Controller implements HasMiddleware
      */
     public function confirm(Request $request): JsonResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'gateway' => 'required|in:izipay,mercadopago,paypal',
             'payment_id' => 'required|string',
         ]);
 
         try {
-            $gateway = PaymentFactory::make($request->gateway);
+            $user = auth('api')->user();
+            $payment = $this->paymentRepository->getPaymentByPaymentId($validated['payment_id']);
 
-            // Get current payment status from gateway
-            $result = $gateway->confirmPayment($request->payment_id);
+            if (!$payment) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pago no encontrado.',
+                ], 404);
+            }
 
-            // Map result to standard format
+            if (!$user->isAdmin() && (int) $payment->user_id !== (int) $user->user_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No autorizado para confirmar este pago.',
+                ], 403);
+            }
+
+            $gateway = PaymentFactory::make($validated['gateway']);
+            $result = $gateway->confirmPayment($validated['payment_id']);
             $status = strtolower($result['status'] ?? 'unknown');
 
-            // Update payment in database
             $payment = $this->paymentRepository->updatePaymentStatus(
-                $request->payment_id,
+                $validated['payment_id'],
                 $status,
                 $result
             );
 
-            // Dispatch event if payment is completed
-            if ($status === 'completed') {
+            if (in_array($status, ['completed', 'paid', 'approved'], true)) {
                 event(new PaymentConfirmed($payment));
             }
 
             Log::info('Payment confirmed', [
-                'payment_id' => $request->payment_id,
+                'payment_id' => $validated['payment_id'],
                 'status' => $status,
-                'gateway' => $request->gateway,
+                'gateway' => $validated['gateway'],
             ]);
 
             return response()->json([
@@ -160,16 +192,15 @@ class PaymentController extends Controller implements HasMiddleware
                 'status' => $status,
                 'message' => "Payment {$status}",
             ]);
-
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Payment confirmation failed', [
                 'error' => $e->getMessage(),
-                'payment_id' => $request->payment_id,
+                'payment_id' => $validated['payment_id'] ?? null,
             ]);
 
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage(),
+                'message' => 'No se pudo confirmar el pago.',
             ], 500);
         }
     }
@@ -231,14 +262,13 @@ class PaymentController extends Controller implements HasMiddleware
             $status = strtolower($result['status'] ?? 'unknown');
 
             // Update payment in database
-            $this->paymentRepository->updatePaymentStatus(
+            $payment = $this->paymentRepository->updatePaymentStatus(
                 $paymentId,
                 $status,
                 $result
             );
 
-            // Dispatch event if payment is completed
-            if ($status === 'completed') {
+            if (in_array($status, ['completed', 'paid', 'approved'], true)) {
                 event(new PaymentConfirmed($payment));
             }
 
