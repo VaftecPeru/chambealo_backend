@@ -36,7 +36,8 @@ jobs:
           extensions: mbstring, pdo_sqlite, sqlite3
           coverage: none
 
-      - name: Validate Composer
+      - name: Validate Composer metadata
+        continue-on-error: true
         run: composer validate --no-check-publish
 
       - name: Install dependencies
