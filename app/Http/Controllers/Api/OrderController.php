@@ -8,6 +8,7 @@ use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class OrderController extends Controller
 {
@@ -81,14 +82,14 @@ class OrderController extends Controller
                     ->first();
 
                 if (!$product) {
-                    abort(response()->json([
+                    throw new HttpResponseException(response()->json([
                         'success' => false,
                         'message' => 'Uno de los productos no existe o no está disponible.',
                     ], 422));
                 }
 
                 if ((int) $product->stock < (int) $item['quantity']) {
-                    abort(response()->json([
+                    throw new HttpResponseException(response()->json([
                         'success' => false,
                         'message' => "Stock insuficiente para el producto {$product->name}.",
                     ], 422));
