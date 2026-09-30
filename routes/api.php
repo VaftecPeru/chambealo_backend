@@ -149,10 +149,4 @@ Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
     });
 });
 
-Route::middleware(['auth:api', 'active'])->group(function () {
-    Route::apiResource('jobs', JobController::class);
-    Route::post('payments', [PaymentController::class, 'store'])
-        ->middleware('throttle:10,1');
-});
-
 ?>
