@@ -19,7 +19,7 @@ use App\Http\Controllers\JobController;
 */
 
 // Authentication routes
-Route::middleware('throttle:10,1')->group(function () {
+Route::middleware('throttle:5,1')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/refresh', [AuthController::class, 'refresh']);
