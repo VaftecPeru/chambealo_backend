@@ -82,4 +82,13 @@ class ProductController extends Controller
 
         return response()->json(['success' => true, 'message' => 'Producto eliminado.']);
     }
+
+        // Pendiente de C-037: la tabla products aún no tiene dueño (user_id).
+    public function myProducts()
+    {
+        return response()->json([
+            'success' => false,
+            'message' => 'Aún no disponible: los productos no tienen vendedor asignado.',
+        ], 501);
+    }
 }
