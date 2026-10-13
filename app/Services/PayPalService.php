@@ -69,7 +69,14 @@ class PayPalService implements PaymentServiceInterface
                 throw new \Exception('Failed to create PayPal order: ' . $response->body());
             }
 
-            return $response->json();
+              $result = $response->json();
+
+            $approveUrl = collect($result['links'] ?? [])
+                ->first(fn ($l) => in_array($l['rel'] ?? '', ['approve', 'payer-action'], true))['href'] ?? null;
+
+            $result['approve_url'] = $approveUrl;
+
+            return $result;
 
         } catch (\Exception $e) {
             Log::error('PayPal createPayment error', [

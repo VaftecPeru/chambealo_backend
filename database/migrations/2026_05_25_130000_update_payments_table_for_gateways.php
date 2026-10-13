@@ -28,7 +28,7 @@ return new class extends Migration
                     $table->json('raw_response')->nullable()->after('currency');
                 }
                 if (!Schema::hasColumn('payments', 'user_id')) {
-                    $table->bigInteger('user_id')->nullable()->index();
+                    $table->unsignedBigInteger('user_id')->nullable()->index();
                     $table->foreign('user_id')->references('user_id')->on('users')->onDelete('set null');
                 }
                 if (!Schema::hasColumn('payments', 'tenant_id')) {
