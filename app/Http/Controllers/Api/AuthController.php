@@ -171,12 +171,19 @@ class AuthController extends Controller
                 'role' => $user->role,
             ],
         ], 200);
-    } catch (\Exception $e) {
-        return response()->json([
-            'error' => 'Error al actualizar perfil: ' . $e->getMessage()
-        ], 500);
+ } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error(
+                'Error al actualizar perfil',
+                ['exception' => $e]
+            );
+
+            return response()->json([
+                'error' => 'Error al actualizar perfil',
+            ], 500);
+        }
     }
-}
 
     public function refresh(Request $request)
     {
