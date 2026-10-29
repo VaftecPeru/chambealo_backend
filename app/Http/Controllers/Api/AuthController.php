@@ -40,14 +40,20 @@ class AuthController extends Controller
                 ]
             ], 201);
 
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Registration failed',
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+    throw $e;
+} catch (\Throwable $e) {
+    \Illuminate\Support\Facades\Log::error(
+        'Error durante el registro de usuario',
+        ['exception' => $e]
+    );
 
+    return response()->json([
+        'success' => false,
+        'message' => 'No se pudo completar el registro.',
+    ], 500);
+}
+    }
     public function login(Request $request)
     {
         try {

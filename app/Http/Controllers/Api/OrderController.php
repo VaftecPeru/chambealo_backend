@@ -63,13 +63,26 @@ class OrderController extends Controller
         ]);
 
         $user = $request->user('api') ?? $request->user();
-        $tenantId = app('tenant_id');
+$tenantId = app('tenant_id');
 
-        $order = DB::transaction(function () use ($validated, $user, $tenantId) {
+// Agrupar productos repetidos y sumar sus cantidades.
+$groupedItems = collect($validated['items'])
+    ->groupBy('product_id')
+    ->map(function ($items, $productId) {
+        return [
+            'product_id' => (int) $productId,
+            'quantity' => $items->sum('quantity'),
+        ];
+    })
+    ->sortKeys()
+    ->values()
+    ->all();
+
+$order = DB::transaction(function () use ($groupedItems, $validated, $user, $tenantId) {
             $orderItems = [];
             $subtotal = 0;
 
-            foreach ($validated['items'] as $item) {
+            foreach ($groupedItems as $item) {
                 $product = Product::active()
                     ->where('product_id', $item['product_id'])
                     ->when($tenantId, function ($query) use ($tenantId) {

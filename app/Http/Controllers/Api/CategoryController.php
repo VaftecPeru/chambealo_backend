@@ -3,47 +3,76 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Category;
 use Illuminate\Http\Request;
 
 class CategoryController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function index(Request $request)
     {
-        //
+        $categories = Category::query()
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $categories->map(fn ($category) => [
+                'id' => $category->category_id,
+                'category_id' => $category->category_id,
+                'name' => $category->name,
+                'slug' => $category->slug,
+                'description' => $category->description,
+                'parent_id' => $category->parent_id,
+            ]),
+        ]);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
+    public function show(string $category)
+    {
+        $item = Category::find($category);
+
+        if (!$item) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Categoría no encontrada.',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $item->category_id,
+                'category_id' => $item->category_id,
+                'name' => $item->name,
+                'slug' => $item->slug,
+                'description' => $item->description,
+                'parent_id' => $item->parent_id,
+            ],
+        ]);
+    }
+
+    // Las operaciones administrativas se implementarán después.
     public function store(Request $request)
     {
-        //
+        return response()->json([
+            'success' => false,
+            'message' => 'Pendiente de implementar.',
+        ], 501);
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
+    public function update(Request $request, string $category)
     {
-        //
+        return response()->json([
+            'success' => false,
+            'message' => 'Pendiente de implementar.',
+        ], 501);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
+    public function destroy(string $category)
     {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
+        return response()->json([
+            'success' => false,
+            'message' => 'Pendiente de implementar.',
+        ], 501);
     }
 }
