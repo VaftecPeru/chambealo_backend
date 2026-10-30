@@ -20,3 +20,4 @@ yarn-error.log
 /public/images/products/*.webp
 *.sql
 *.sql.gz
+.env.testing
