@@ -3,6 +3,12 @@
 return [
     'frontend_url' => env('FRONTEND_URL', env('APP_URL', 'http://localhost')),
     'default_currency' => env('PAYMENT_DEFAULT_CURRENCY', 'PEN'),
+    'paypal_fx' => [
+    'pen_per_usd' => env('PAYPAL_FX_PEN_PER_USD'),
+    'source' => env('PAYPAL_FX_SOURCE'),
+    'quoted_at' => env('PAYPAL_FX_QUOTED_AT'),
+    'max_age_minutes' => 1440,
+],
     'izipay' => [
         'environment' => env('IZIPAY_ENV', 'sandbox'),
         'client_id' => env('IZIPAY_CLIENT_ID'),
@@ -23,5 +29,6 @@ return [
         'environment' => env('PAYPAL_ENV', 'sandbox'),
         'client_id' => env('PAYPAL_CLIENT_ID'),
         'client_secret' => env('PAYPAL_CLIENT_SECRET'),
+        'webhook_id' => env('PAYPAL_WEBHOOK_ID'),
     ],
 ];

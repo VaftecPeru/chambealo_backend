@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Models\Transaction;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\DB;
 
 /**
  * PaymentRepository
@@ -78,14 +79,174 @@ class PaymentRepository
      * Create or refresh a pending payment for an existing order.
      * Keeps the unique order_id constraint idempotent across retries.
      */
-    public function upsertPaymentForOrder(array $data): Payment
-    {
-        return Payment::updateOrCreate(
-            ['order_id' => $data['order_id']],
-            $data
+
+/**
+ * Reserva una sesión PayPal antes de crear la orden externa.
+ *
+ * La restricción UNIQUE de payments.order_id impide
+ * dos reservas simultáneas para el mismo pedido.
+ */
+public function reservePayPalSession(array $data): Payment
+{
+    if (($data['gateway'] ?? null) !== 'paypal') {
+        throw new \InvalidArgumentException(
+            'La reserva solo admite PayPal.'
         );
     }
 
+    if (
+        ($data['currency'] ?? null) !== 'USD' ||
+        ($data['original_currency'] ?? null) !== 'PEN'
+    ) {
+        throw new \InvalidArgumentException(
+            'La conversion monetaria es obligatoria.'
+        );
+    }
+
+    return DB::transaction(function () use ($data) {
+        $existing = Payment::where(
+            'order_id',
+            $data['order_id']
+        )->lockForUpdate()->first();
+
+        if ($existing) {
+            throw new \RuntimeException(
+                'Este pedido ya tiene un registro de pago.'
+            );
+        }
+
+        return Payment::create(array_merge($data, [
+            'status' => 'creating',
+            'payment_id' => null,
+        ]));
+    }, 3);
+}
+
+/**
+ * Finalizar una reserva después de crear la orden en PayPal.
+ */
+public function finalizePayPalSession(
+    int $paymentId,
+    array $result
+): Payment {
+    $paypalOrderId = $result['id'] ?? null;
+    $approveUrl = $result['approve_url'] ?? null;
+
+    if (!is_string($paypalOrderId) || $paypalOrderId === '' ||
+        !is_string($approveUrl) || $approveUrl === '') {
+        throw new \InvalidArgumentException(
+            'La respuesta de PayPal no contiene una orden valida.'
+        );
+    }
+
+    return DB::transaction(function () use (
+        $paymentId,
+        $paypalOrderId,
+        $result
+    ) {
+        $payment = Payment::whereKey($paymentId)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if (
+            $payment->gateway !== 'paypal' ||
+            $payment->status !== 'creating' ||
+            $payment->payment_id !== null
+        ) {
+            throw new \RuntimeException(
+                'La reserva PayPal no puede finalizarse.'
+            );
+        }
+
+        $payment->payment_id = $paypalOrderId;
+        $payment->status = 'pending';
+        $payment->raw_response = $result;
+        $payment->save();
+
+        return $payment;
+    }, 3);
+}
+
+/**
+ * Marca una reserva PayPal como incierta.
+ *
+ * Se utiliza cuando no sabemos si PayPal creo la orden
+ * porque hubo un error de conexion o una respuesta incompleta.
+ *
+ * No libera la reserva ni permite otro intento automatico.
+ */
+public function markPayPalSessionUncertain(
+    int $paymentId,
+    string $reason
+): Payment {
+    return DB::transaction(function () use ($paymentId) {
+        $payment = Payment::whereKey($paymentId)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if (
+            $payment->gateway !== 'paypal' ||
+            $payment->status !== 'creating' ||
+            $payment->payment_id !== null
+        ) {
+            throw new \RuntimeException(
+                'La reserva PayPal no puede marcarse para revision.'
+            );
+        }
+
+        $payment->status = 'creation_uncertain';
+
+        $payment->raw_response = [
+            'error_type' => 'creation_uncertain',
+            'message' => 'No se pudo confirmar la creacion de la orden PayPal.',
+            'requires_reconciliation' => true,
+        ];
+
+        $payment->save();
+
+        return $payment;
+    }, 3);
+}
+public function upsertPaymentForOrder(array $data): Payment
+{
+    return DB::transaction(function () use ($data) {
+        $payment = Payment::where(
+            'order_id',
+            $data['order_id']
+        )->lockForUpdate()->first();
+
+        if ($payment) {
+            // Nunca sobrescribir un pago completado.
+            if (in_array(strtolower($payment->status), [
+    'creating',
+    'creation_uncertain',
+    'pending',
+    'approved',
+], true)) {
+    throw new \RuntimeException(
+        'Este pedido ya tiene una sesion de pago activa.'
+    );
+}
+
+            // Solo reutilizar registros fallidos o cancelados.
+            if (!in_array(strtolower($payment->status), [
+                'failed',
+                'cancelled',
+            ], true)) {
+                throw new \RuntimeException(
+                    'El estado del pago no permite reemplazarlo.'
+                );
+            }
+
+            $payment->fill($data);
+            $payment->save();
+
+            return $payment;
+        }
+
+        return Payment::create($data);
+    }, 3);
+}
     /**
      * Get payment by order ID
      */
@@ -105,43 +266,110 @@ class PaymentRepository
     /**
      * Update payment status and optionally create transaction
      */
-    public function updatePaymentStatus(string $identifier, string $status, array $rawResponse = null): Payment
-    {
+
+public function updatePaymentStatus(
+    string $identifier,
+    string $status,
+    array $rawResponse = null
+): Payment {
+    return DB::transaction(function () use (
+        $identifier,
+        $status,
+        $rawResponse
+    ) {
+        // Bloqueo de fila para serializar confirmaciones
+        // del mismo pago.
         $payment = Payment::where('payment_id', $identifier)
             ->orWhere('order_id', $identifier)
+            ->lockForUpdate()
             ->firstOrFail();
+
+        $status = strtolower($status);
+
+        // Nunca retroceder un pago ya completado.
+        if (in_array(strtolower($payment->status), [
+            'completed',
+            'paid',
+        ], true)) {
+            return $payment;
+        }
+
+        // Las aprobaciones no equivalen a capturas.
+        $isCompleted = in_array($status, [
+            'completed',
+            'paid',
+        ], true);
+
+        $transactionId = $rawResponse['transaction_id']
+            ?? $rawResponse['id']
+            ?? null;
+
+        // Para PayPal exigimos el Capture ID real.
+        if ($payment->gateway === 'paypal' && $isCompleted) {
+            $transactionId = $rawResponse['transaction_id']
+                ?? null;
+
+            if (!is_string($transactionId)
+                || $transactionId === '') {
+                throw new \RuntimeException(
+                    'No se recibio un Capture ID valido de PayPal.'
+                );
+            }
+        }
+
         $payment->status = $status;
-        
-        if ($rawResponse) {
+
+        if ($rawResponse !== null) {
             $payment->raw_response = $rawResponse;
         }
-        
+
         $payment->save();
 
-        // Create transaction when payment is completed
-        if (in_array(strtolower($status), ['completed', 'paid', 'approved'], true) && $rawResponse) {
-            $transactionId = $rawResponse['transaction_id'] ?? $rawResponse['id'] ?? null;
+        if ($isCompleted && $rawResponse !== null) {
+            // No crear transacciones sin identificador.
+            if (!$transactionId) {
+                throw new \RuntimeException(
+                    'Falta el identificador de transaccion.'
+                );
+            }
 
-            if ($transactionId && Transaction::where('transaction_id', $transactionId)->exists()) {
+            // Comprobar que ese identificador no pertenezca
+            // a otro pago.
+            $existing = Transaction::where(
+                'transaction_id',
+                $transactionId
+            )->first();
+
+            if ($existing) {
+                if ((int) $existing->payment_id
+                    !== (int) $payment->id) {
+                    throw new \RuntimeException(
+                        'La transaccion pertenece a otro pago.'
+                    );
+                }
+
                 return $payment;
             }
 
-            $this->logTransaction([
+            Transaction::create([
                 'payment_id' => $payment->id,
                 'transaction_id' => $transactionId,
+                'provider_transaction_id' => $transactionId,
                 'order_id' => $payment->order_id,
                 'user_id' => $payment->user_id,
                 'tenant_id' => $payment->tenant_id,
-                'gateway' => $payment->gateway,
+                'payment_method' => $payment->gateway,
+                'process' => 'confirm_payment',
                 'status' => 'success',
                 'amount' => $payment->amount,
+                'response_payload' => $rawResponse,
                 'raw_data' => $rawResponse,
             ]);
         }
 
         return $payment;
-    }
-
+    }, 3);
+}
     /**
      * Create a transaction log
      */
