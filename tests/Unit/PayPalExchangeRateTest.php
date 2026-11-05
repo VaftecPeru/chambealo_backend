@@ -4,51 +4,68 @@ namespace Tests\Unit;
 
 use App\Services\Payments\PayPalExchangeRate;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Tests\TestCase;
 
 class PayPalExchangeRateTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Cache::forget('paypal_fx_usd_pen');
+
+        config()->set('payment.paypal_fx.max_age_minutes', 1440);
+    }
+
     protected function tearDown(): void
     {
+        Cache::forget('paypal_fx_usd_pen');
+
         Carbon::setTestNow();
 
         parent::tearDown();
     }
 
-    private function configureQuote(
-        ?string $rate,
-        ?string $source,
-        ?string $date
+    private function fakeQuote(
+        $rate,
+        ?string $date = null,
+        string $result = 'success'
     ): void {
-        config()->set('payment.paypal_fx', [
-            'pen_per_usd' => $rate,
-            'source' => $source,
-            'quoted_at' => $date,
-            'max_age_minutes' => 1440,
+        Http::preventStrayRequests();
+
+        Http::fake([
+            'https://open.er-api.com/v6/latest/USD' =>
+                Http::response([
+                    'result' => $result,
+                    'rates' => [
+                        'PEN' => $rate,
+                    ],
+                    'time_last_update_utc' =>
+                        $date ?? now()->toRfc7231String(),
+                ], 200),
         ]);
     }
 
     public function test_accepts_valid_quote(): void
     {
-        $now = now();
-
-        $this->configureQuote(
-            '3.50000000',
-            'Proveedor de prueba',
-            $now->toIso8601String()
-        );
+        $this->fakeQuote(3.50);
 
         $quote = app(PayPalExchangeRate::class)->getQuote();
 
         $this->assertSame('3.50000000', $quote['rate']);
-        $this->assertSame('Proveedor de prueba', $quote['source']);
+        $this->assertSame(
+            'ExchangeRate-API_Open_Access',
+            $quote['source']
+        );
         $this->assertNotEmpty($quote['quoted_at']);
     }
 
     public function test_rejects_missing_rate(): void
     {
-        $this->configureQuote(null, 'Test', now()->toIso8601String());
+        $this->fakeQuote(null);
 
         $this->expectException(RuntimeException::class);
 
@@ -57,7 +74,7 @@ class PayPalExchangeRateTest extends TestCase
 
     public function test_rejects_zero_rate(): void
     {
-        $this->configureQuote('0', 'Test', now()->toIso8601String());
+        $this->fakeQuote(0);
 
         $this->expectException(RuntimeException::class);
 
@@ -66,7 +83,11 @@ class PayPalExchangeRateTest extends TestCase
 
     public function test_rejects_missing_source(): void
     {
-        $this->configureQuote('3.50', null, now()->toIso8601String());
+        $this->fakeQuote(
+            3.50,
+            null,
+            'error'
+        );
 
         $this->expectException(RuntimeException::class);
 
@@ -75,10 +96,9 @@ class PayPalExchangeRateTest extends TestCase
 
     public function test_rejects_expired_quote(): void
     {
-        $this->configureQuote(
-            '3.50',
-            'Test',
-            now()->subDays(2)->toIso8601String()
+        $this->fakeQuote(
+            3.50,
+            now()->subDays(2)->toRfc7231String()
         );
 
         $this->expectException(RuntimeException::class);
@@ -88,10 +108,9 @@ class PayPalExchangeRateTest extends TestCase
 
     public function test_rejects_future_quote(): void
     {
-        $this->configureQuote(
-            '3.50',
-            'Test',
-            now()->addDays(1)->toIso8601String()
+        $this->fakeQuote(
+            3.50,
+            now()->addDays(1)->toRfc7231String()
         );
 
         $this->expectException(RuntimeException::class);
@@ -101,7 +120,7 @@ class PayPalExchangeRateTest extends TestCase
 
     public function test_rejects_negative_rate(): void
     {
-        $this->configureQuote('-3.50', 'Test', now()->toIso8601String());
+        $this->fakeQuote(-3.50);
 
         $this->expectException(RuntimeException::class);
 
