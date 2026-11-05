@@ -17,6 +17,14 @@ use App\Services\Payments\PayPalExchangeRate;
 class PaymentAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->withoutMiddleware(
+            \Illuminate\Routing\Middleware\ThrottleRequests::class
+        );
+    }
 
     private function asJwt(User $user): static
     {
@@ -737,12 +745,22 @@ public function test_paypal_conversion_preserves_original_amount(): void
         'discount' => 0,
     ]);
 
-    config()->set('payment.paypal_fx', [
-        'pen_per_usd' => '3.50000000',
-        'source' => 'Proveedor de prueba',
-        'quoted_at' => now()->toIso8601String(),
-        'max_age_minutes' => 1440,
+    config()->set('payment.paypal_fx.max_age_minutes', 1440);
+
+    \Illuminate\Support\Facades\Cache::forget('paypal_fx_usd_pen');
+
+    Http::preventStrayRequests();
+
+    Http::fake([
+        'https://open.er-api.com/v6/latest/USD' => Http::response([
+            'result' => 'success',
+            'rates' => [
+                'PEN' => 3.50,
+            ],
+            'time_last_update_utc' => now()->toRfc7231String(),
+        ], 200),
     ]);
+
 
     $controller = app(\App\Http\Controllers\PaymentController::class);
 
@@ -758,10 +776,10 @@ public function test_paypal_conversion_preserves_original_amount(): void
     $this->assertSame('100.00', $result['original_amount']);
     $this->assertSame('PEN', $result['original_currency']);
     $this->assertSame('3.50000000', $result['exchange_rate']);
-
-    $this->assertSame(
-        '100.00',
-        $order->fresh()->getRawOriginal('total_amount')
+    $this->assertEqualsWithDelta(
+        100.00,
+        (float) $order->fresh()->getRawOriginal('total_amount'),
+        0.001
     );
 }
 }

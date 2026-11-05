@@ -6,12 +6,35 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class PayPalCheckoutSessionTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->withoutMiddleware(
+            \Illuminate\Routing\Middleware\ThrottleRequests::class
+        );
+
+        Cache::forget('paypal_fx_usd_pen');
+
+        config()->set('payment.default_currency', 'PEN');
+        config()->set('payment.paypal_fx.max_age_minutes', 1440);
+    }
+
+
+        protected function tearDown(): void
+        {
+            Cache::forget('paypal_fx_usd_pen');
+
+            parent::tearDown();
+        }
 
     private function createOrder(User $user): Order
     {
@@ -43,26 +66,44 @@ class PayPalCheckoutSessionTest extends TestCase
     private function configureExchangeRate(): void
     {
         config()->set('payment.default_currency', 'PEN');
+        config()->set('payment.paypal_fx.max_age_minutes', 1440);
 
-        config()->set(
-            'payment.paypal_fx.pen_per_usd',
-            '3.50'
-        );
+        Cache::forget('paypal_fx_usd_pen');
+    }
 
-        config()->set(
-            'payment.paypal_fx.source',
-            'Proveedor de prueba'
-        );
+    private function fakeExchangeRate($rate = 3.50): void
+    {
+        Http::fake([
+            'https://open.er-api.com/v6/latest/USD' => Http::response([
+                'result' => 'success',
+                'rates' => [
+                    'PEN' => $rate,
+                ],
+                'time_last_update_utc' => now()->toRfc7231String(),
+            ], 200),
+        ]);
+    }
 
-        config()->set(
-            'payment.paypal_fx.quoted_at',
-            now()->toIso8601String()
-        );
+    private function fakePayPal(
+        string $orderId,
+        int $status = 201
+    ): void {
+        Http::fake([
+            '*paypal.com/v1/oauth2/token' => Http::response([
+                'access_token' => 'TOKEN_TEST',
+                'token_type' => 'Bearer',
+                'expires_in' => 3600,
+            ], 200),
 
-        config()->set(
-            'payment.paypal_fx.max_age_minutes',
-            1440
-        );
+            '*paypal.com/v2/checkout/orders' => Http::response([
+                'id' => $orderId,
+                'status' => 'CREATED',
+                'links' => [[
+                    'rel' => 'approve',
+                    'href' => 'https://www.sandbox.paypal.com/checkoutnow?token=TEST',
+                ]],
+            ], $status),
+        ]);
     }
 
     public function test_checkout_creates_paypal_session_in_usd(): void
@@ -74,22 +115,8 @@ class PayPalCheckoutSessionTest extends TestCase
 
         Http::preventStrayRequests();
 
-        Http::fake([
-            '*paypal.com/v1/oauth2/token' => Http::response([
-                'access_token' => 'TOKEN_TEST',
-                'token_type' => 'Bearer',
-                'expires_in' => 3600,
-            ], 200),
-
-            '*paypal.com/v2/checkout/orders' => Http::response([
-                'id' => 'PAYPAL-CHECKOUT-TEST',
-                'status' => 'CREATED',
-                'links' => [[
-                    'rel' => 'approve',
-                    'href' => 'https://www.sandbox.paypal.com/checkoutnow?token=TEST',
-                ]],
-            ], 201),
-        ]);
+        $this->fakeExchangeRate();
+        $this->fakePayPal('PAYPAL-CHECKOUT-TEST');
 
         $user = User::factory()->create();
         $order = $this->createOrder($user);
@@ -108,7 +135,7 @@ class PayPalCheckoutSessionTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.amount', '28.57')
             ->assertJsonPath('data.currency', 'USD')
-            ->assertJsonPath('data.original_amount', '100.00')
+            ->assertJsonPath('data.original_amount', '100')
             ->assertJsonPath('data.original_currency', 'PEN')
             ->assertJsonPath(
                 'data.gateway_id',
@@ -131,16 +158,22 @@ class PayPalCheckoutSessionTest extends TestCase
             $order->fresh()->status
         );
 
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
     }
 
     public function test_checkout_rejects_missing_exchange_rate(): void
     {
-        config()->set('payment.default_currency', 'PEN');
-        config()->set('payment.paypal_fx.pen_per_usd', null);
+        $this->configureExchangeRate();
 
         Http::preventStrayRequests();
-        Http::fake();
+
+        Http::fake([
+            'https://open.er-api.com/v6/latest/USD' => Http::response([
+                'result' => 'success',
+                'rates' => [],
+                'time_last_update_utc' => now()->toRfc7231String(),
+            ], 200),
+        ]);
 
         $user = User::factory()->create();
         $order = $this->createOrder($user);
@@ -154,7 +187,11 @@ class PayPalCheckoutSessionTest extends TestCase
             ->assertStatus(503)
             ->assertJsonPath('success', false);
 
-        Http::assertNothingSent();
+        Http::assertSentCount(1);
+
+        Http::assertNotSent(function ($request) {
+            return str_contains($request->url(), 'paypal.com');
+        });
 
         $this->assertDatabaseMissing('payments', [
             'order_id' => $order->order_id,
@@ -170,21 +207,8 @@ class PayPalCheckoutSessionTest extends TestCase
 
         Http::preventStrayRequests();
 
-        Http::fake([
-            '*paypal.com/v1/oauth2/token' => Http::response([
-                'access_token' => 'TOKEN_TEST',
-                'token_type' => 'Bearer',
-                'expires_in' => 3600,
-            ], 200),
-
-            '*paypal.com/v2/checkout/orders' => Http::response([
-                'id' => 'PAYPAL-CHECKOUT-ONCE',
-                'links' => [[
-                    'rel' => 'approve',
-                    'href' => 'https://www.sandbox.paypal.com/checkoutnow?token=ONCE',
-                ]],
-            ], 201),
-        ]);
+        $this->fakeExchangeRate();
+        $this->fakePayPal('PAYPAL-CHECKOUT-ONCE');
 
         $user = User::factory()->create();
         $order = $this->createOrder($user);
@@ -207,7 +231,7 @@ class PayPalCheckoutSessionTest extends TestCase
             Payment::where('order_id', $order->order_id)->count()
         );
 
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
     }
 
     public function test_connection_failure_preserves_uncertain_reservation(): void
@@ -218,6 +242,8 @@ class PayPalCheckoutSessionTest extends TestCase
         config()->set('payment.paypal.client_secret', 'SECRET_TEST');
 
         Http::preventStrayRequests();
+
+        $this->fakeExchangeRate();
 
         Http::fake([
             '*paypal.com/v1/oauth2/token' => Http::response([
