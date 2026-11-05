@@ -33,7 +33,11 @@ class Payment extends Model
         'payment_method',
         'monto',
         'estado',
-        'identificador'
+        'original_amount',
+'original_currency',
+'exchange_rate',
+'exchange_rate_source',
+'exchange_rate_at',
     ];
 
     /**
@@ -46,7 +50,10 @@ class Payment extends Model
         'webhook_received_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
-        'amount' => 'float',
+        'amount' => 'decimal:2',
+        'original_amount' => 'decimal:2',
+'exchange_rate' => 'decimal:8',
+'exchange_rate_at' => 'datetime',
     ];
 
     /**

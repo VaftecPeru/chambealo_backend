@@ -69,7 +69,19 @@ class OrderController extends Controller
             $orderItems = [];
             $subtotal = 0;
 
-            foreach ($validated['items'] as $item) {
+            // Suma cantidades repetidas y ordena por product_id para bloquear
+            // siempre en el mismo orden (evita bloqueos cruzados entre pedidos).
+            $requestedItems = collect($validated['items'])
+                ->groupBy('product_id')
+                ->map(fn ($group, $productId) => [
+                    'product_id' => (int) $productId,
+                    'quantity' => (int) $group->sum('quantity'),
+                ])
+                ->sortKeys()
+                ->values()
+                ->all();
+
+            foreach ($requestedItems as $item) {
                 $product = Product::active()
                     ->where('product_id', $item['product_id'])
                     ->when($tenantId, function ($query) use ($tenantId) {
@@ -84,14 +96,20 @@ class OrderController extends Controller
                 if (!$product) {
                     throw new HttpResponseException(response()->json([
                         'success' => false,
+                        'code' => 'product_unavailable',
                         'message' => 'Uno de los productos no existe o no está disponible.',
+                        'product_id' => $item['product_id'],
                     ], 422));
                 }
 
                 if ((int) $product->stock < (int) $item['quantity']) {
                     throw new HttpResponseException(response()->json([
                         'success' => false,
+                        'code' => 'insufficient_stock',
                         'message' => "Stock insuficiente para el producto {$product->name}.",
+                        'product_id' => $product->product_id,
+                        'requested' => (int) $item['quantity'],
+                        'available' => (int) $product->stock,
                     ], 422));
                 }
 

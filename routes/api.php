@@ -82,6 +82,11 @@ Route::middleware(['auth:api', 'active'])->group(function () {
             ->name('api.payment.session');
         Route::post('/confirm', [PaymentController::class, 'confirm'])
             ->name('api.payment.confirm');
+        Route::get('/status/{paymentId}', [
+            PaymentController::class,
+            'getPaymentStatus'
+        ])->middleware('throttle:30,1')
+        ->name('api.payment.status');
     });
 
     // Legacy payment endpoints
