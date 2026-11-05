@@ -36,7 +36,7 @@ class PayPalService implements PaymentServiceInterface
 
     /**
      * Create a PayPal order
-     * 
+     *
      * @param array $orderData
      * @return array
      * @throws \Exception
@@ -120,7 +120,7 @@ public function createPayment(array $orderData): array
 }
     /**
      * Capture a PayPal order
-     * 
+     *
      * @param string $orderId PayPal order ID
      * @param array $additionalData
      * @return array
@@ -153,6 +153,33 @@ public function createPayment(array $orderData): array
 
         return $response->json();
     }
+
+
+    /**
+     * Consultar una captura de PayPal sin realizar cobros.
+     */
+    public function getCapture(string $captureId): array
+    {
+        $accessToken = $this->getAccessToken();
+
+        $response = Http::withToken($accessToken)
+            ->timeout(15)
+            ->get("{$this->apiUrl}/v2/payments/captures/{$captureId}");
+
+        if ($response->failed()) {
+            Log::error('PayPal getCapture failed', [
+                'capture_id' => $captureId,
+                'http_status' => $response->status(),
+            ]);
+
+            throw new \RuntimeException(
+                'No se pudo consultar la captura de PayPal.'
+            );
+        }
+
+        return $response->json();
+    }
+
 
     /**
      * Capturar una orden aprobada, evitando capturas repetidas.
@@ -222,7 +249,7 @@ public function createPayment(array $orderData): array
     }
     /**
      * Verify webhook signature
-     * 
+     *
      * @param array $payload
      * @param string $signature
      * @return bool
@@ -271,7 +298,7 @@ public function createPayment(array $orderData): array
 
     /**
      * Process webhook payload
-     * 
+     *
      * @param array $payload
      * @return array
      * @throws \Exception
@@ -291,7 +318,7 @@ public function createPayment(array $orderData): array
 
     /**
      * Refund a PayPal payment
-     * 
+     *
      * @param string $captureId
      * @param float|null $amount
      * @return array

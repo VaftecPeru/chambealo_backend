@@ -33,24 +33,30 @@ class PaymentController extends Controller
             ->only(['webhook']);
     }
 
-    /**
-     * POST /api/payment/session
-     *
-     * Crear una sesión de pago.
-     */
-public function createSession(Request $request): JsonResponse
-{
-    $validated = $request->validate([
-        'gateway' => 'required|in:izipay,mercadopago,paypal',
-        'order_id' => 'required|integer|exists:orders,id',
-        'description' => 'nullable|string|max:255',
-    ]);
 
-    try {
+    /**
+     * GET /api/payment/status/{paymentId}
+     * Consultar el estado de un pago sin realizar cobros.
+     */
+    public function getPaymentStatus(
+        Request $request,
+        string $paymentId
+    ): JsonResponse {
         $user = auth('api')->user();
+
+        $payment = $this->paymentRepository
+            ->getPaymentByPaymentId($paymentId);
+
+        if (!$payment || $payment->gateway !== 'paypal') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Pago no encontrado.',
+            ], 404);
+        }
+
         $tenantId = app('tenant_id');
 
-        $orderQuery = Order::whereKey($validated['order_id'])
+        $orderQuery = Order::whereKey($payment->order_id)
             ->when(
                 $tenantId,
                 fn ($query) => $query->where('tenant_id', $tenantId)
@@ -60,75 +66,116 @@ public function createSession(Request $request): JsonResponse
             $orderQuery->where('user_id', $user->user_id);
         }
 
-        $order = $orderQuery->first();
-
-        if (!$order) {
+        if (!$orderQuery->exists()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Pedido no encontrado o no autorizado.',
+                'message' => 'Pago no encontrado.',
             ], 404);
         }
 
-        if (!in_array($order->status, [
-            Order::STATUS_CHECKOUT,
-            Order::STATUS_PAYMENT_PENDING,
-        ], true)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'El pedido no esta disponible para iniciar pago.',
-            ], 422);
-        }
+        return response()->json([
+            'success' => true,
+            'status' => $payment->status,
+        ]);
+    }
 
-        $amount = (float) $order->total_amount;
 
-        $currency = strtoupper(
-            config('payment.default_currency', 'PEN')
-        );
+    /**
+     * POST /api/payment/session
+     *
+     * Crear una sesión de pago.
+     */
+    public function createSession(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'gateway' => 'required|in:izipay,mercadopago,paypal',
+            'order_id' => 'required|integer|exists:orders,id',
+            'description' => 'nullable|string|max:255',
+        ]);
 
-        if ($amount <= 0) {
-            return response()->json([
-                'success' => false,
-                'message' => 'El importe del pedido no es valido.',
-            ], 422);
-        }
+        try {
+            $user = auth('api')->user();
+            $tenantId = app('tenant_id');
 
-        $email = $order->user?->email ?? $user->email;
+            $orderQuery = Order::whereKey($validated['order_id'])
+                ->when(
+                    $tenantId,
+                    fn ($query) => $query->where('tenant_id', $tenantId)
+                );
 
-        $frontendUrl = rtrim(
-            config('payment.frontend_url', config('app.url')),
-            '/'
-        );
+            if (!$user->isAdmin()) {
+                $orderQuery->where('user_id', $user->user_id);
+            }
 
-        $existingPayment = $this->paymentRepository
-            ->getPaymentByOrderId($order->order_id);
+            $order = $orderQuery->first();
 
-        if ($existingPayment) {
-            $existingStatus = strtolower(
-                $existingPayment->status
-            );
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado o no autorizado.',
+                ], 404);
+            }
 
-            if (in_array($existingStatus, [
-                'completed',
-                'paid',
+            if (!in_array($order->status, [
+                Order::STATUS_CHECKOUT,
+                Order::STATUS_PAYMENT_PENDING,
             ], true)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Este pedido ya fue pagado.',
+                    'message' => 'El pedido no esta disponible para iniciar pago.',
                 ], 422);
             }
 
-            if (in_array($existingStatus, [
-                'creating',
-                'creation_uncertain',
-                'pending',
-                'approved',
-            ], true)) {
+            $amount = (float) $order->total_amount;
+
+            $currency = strtoupper(
+                config('payment.default_currency', 'PEN')
+            );
+
+            if ($amount <= 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Este pedido ya tiene una sesion de pago activa o pendiente de revision.',
-                ], 409);
+                    'message' => 'El importe del pedido no es valido.',
+                ], 422);
             }
-        }
+
+            $email = $order->user?->email ?? $user->email;
+
+            $frontendUrl = rtrim(
+                config('payment.frontend_url', config('app.url')),
+                '/'
+            );
+
+            $existingPayment = $this->paymentRepository
+                ->getPaymentByOrderId($order->order_id);
+
+            if ($existingPayment) {
+                $existingStatus = strtolower(
+                    $existingPayment->status
+                );
+
+                if (in_array($existingStatus, [
+                    'completed',
+                    'paid',
+                ], true)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Este pedido ya fue pagado.',
+                    ], 422);
+                }
+
+                if (in_array($existingStatus, [
+                    'creating',
+                    'creation_uncertain',
+                    'pending',
+                    'approved',
+                ], true)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Este pedido ya tiene una sesion de pago activa o pendiente de revision.',
+                    ], 409);
+                }
+            }
 
         /*
          * Flujo exclusivo para PayPal.
@@ -564,11 +611,105 @@ public function createSession(Request $request): JsonResponse
                 ], 401);
             }
 
-            // Por ahora, únicamente procesamos el evento
-            // de captura completada de PayPal.
+            // Procesar los eventos de captura de PayPal
+            // sin modificar el flujo de pagos completados.
+
+            $eventType = $request->input('event_type');
+
             if ($gateway === 'paypal'
-                && $request->input('event_type')
-                    !== 'PAYMENT.CAPTURE.COMPLETED') {
+                && $eventType === 'PAYMENT.CAPTURE.DENIED') {
+
+                $paymentId = $this->extractPaymentId(
+                    $request,
+                    $gateway
+                );
+
+                $captureId = $request->input('resource.id');
+
+                if (!is_string($paymentId) || $paymentId === ''
+                    || !is_string($captureId) || $captureId === '') {
+                    return response()->json([
+                        'error' => 'Referencia PayPal invalida.',
+                    ], 422);
+                }
+
+                $payment = $this->paymentRepository
+                    ->getPaymentByPaymentId($paymentId);
+
+                if (!$payment || $payment->gateway !== 'paypal') {
+                    return response()->json([
+                        'error' => 'Pago PayPal no encontrado.',
+                    ], 404);
+                }
+
+                // No cambiar pagos que ya fueron completados.
+                if (in_array($payment->status, ['completed', 'paid'], true)) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Pago ya completado.',
+                    ]);
+                }
+
+                // Consultar directamente a PayPal sin capturar dinero.
+                $paypalOrder = $gatewayService->getOrder($paymentId);
+                $paypalCapture = $gatewayService->getCapture($captureId);
+
+                if (!$this->paypalDeniedCaptureMatches(
+                    $payment,
+                    $paypalOrder,
+                    $paypalCapture,
+                    $captureId
+                )) {
+                    return response()->json([
+                        'error' => 'La captura rechazada no coincide.',
+                    ], 422);
+                }
+
+                $eventAmount = $request->input('resource.amount');
+                $captureAmount = $paypalCapture['amount'] ?? [];
+
+                if (
+                    $request->input('resource.status') !== 'DENIED'
+                    || !is_array($eventAmount)
+                    || ($eventAmount['currency_code'] ?? null)
+                        !== ($captureAmount['currency_code'] ?? null)
+                    || ($eventAmount['value'] ?? null)
+                        !== ($captureAmount['value'] ?? null)
+                    || $request->input(
+                        'resource.supplementary_data.related_ids.order_id'
+                    ) !== $paymentId
+                ) {
+                    return response()->json([
+                        'error' => 'Los datos del rechazo de PayPal no coinciden.',
+                    ], 422);
+                }
+
+                $updatedPayment = $this->paymentRepository->updatePaymentStatus(
+                    $paymentId,
+                    'failed',
+                    [
+                        'status' => 'failed',
+                        'order_id' => $paymentId,
+                        'transaction_id' => $captureId,
+                        'reason' => $paypalCapture['status_details']['reason']
+                            ?? 'Payment denied',
+                    ]
+                );
+
+                Log::info('PayPal capture denied', [
+                    'payment_id' => $paymentId,
+                    'capture_id' => $captureId,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'status' => $updatedPayment->status,
+                ]);
+            }
+
+            // Mantener el procesamiento existente de capturas completadas.
+            if ($gateway === 'paypal'
+                && $eventType !== 'PAYMENT.CAPTURE.COMPLETED') {
                 return response()->json([
                     'success' => true,
                     'message' => 'Evento PayPal ignorado.',
@@ -736,6 +877,63 @@ public function createSession(Request $request): JsonResponse
                 === $payment->currency
             && ($amount['value'] ?? null)
                 === $expected;
+    }
+
+
+    /**
+     * Verificar una captura rechazada de PayPal.
+     * No realiza cobros ni modifica pagos.
+     */
+    protected function paypalDeniedCaptureMatches(
+        $payment,
+        array $paypalOrder,
+        array $paypalCapture,
+        string $captureId
+    ): bool {
+        if (($paypalOrder['id'] ?? null)
+            !== $payment->payment_id) {
+            return false;
+        }
+
+        if (!$this->paypalPurchaseUnitMatches(
+            $payment,
+            $paypalOrder
+        )) {
+            return false;
+        }
+
+        if (($paypalCapture['id'] ?? null)
+            !== $captureId) {
+            return false;
+        }
+
+        if (($paypalCapture['status'] ?? null)
+            !== 'DENIED') {
+            return false;
+        }
+
+        $relatedOrderId = data_get(
+            $paypalCapture,
+            'supplementary_data.related_ids.order_id'
+        );
+
+        if ($relatedOrderId !== $payment->payment_id) {
+            return false;
+        }
+
+        $expectedAmount = number_format(
+            (float) $payment->amount,
+            2,
+            '.',
+            ''
+        );
+
+        $amount = $paypalCapture['amount'] ?? [];
+
+        return ($amount['currency_code'] ?? null)
+                === $payment->currency
+            && ($amount['value'] ?? null)
+                === $expectedAmount;
     }
 
     /**

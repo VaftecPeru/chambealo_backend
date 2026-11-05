@@ -473,6 +473,252 @@ public function test_valid_paypal_webhook_completes_payment(): void
     Event::assertDispatched(PaymentConfirmed::class);
 }
 
+public function test_valid_paypal_denied_webhook_marks_payment_failed(): void
+{
+    Event::fake([PaymentConfirmed::class]);
+
+    $user = User::factory()->create();
+
+    $order = Order::create([
+        'order_id' => 'ORD-DENIED-' . uniqid(),
+        'tenant_id' => 1,
+        'user_id' => $user->user_id,
+        'total_amount' => '59.90',
+        'taxes' => 0,
+        'shipping_cost' => 0,
+        'status' => Order::STATUS_PAYMENT_PENDING,
+        'items' => [],
+        'shipping_address' => [],
+        'billing_address' => [],
+        'discount' => 0,
+    ]);
+
+    Payment::create([
+        'order_id' => $order->order_id,
+        'payment_id' => 'PAYPAL-ORDER-DENIED',
+        'gateway' => 'paypal',
+        'status' => 'pending',
+        'amount' => '59.90',
+        'currency' => 'USD',
+        'email' => $user->email,
+        'user_id' => $user->user_id,
+        'tenant_id' => 1,
+    ]);
+
+    $amount = [
+        'currency_code' => 'USD',
+        'value' => '59.90',
+    ];
+
+    $paypal = Mockery::mock(PayPalService::class);
+
+    $paypal->shouldReceive('verifyWebhookRequest')
+        ->once()
+        ->andReturn(true);
+
+    $paypal->shouldReceive('getOrder')
+        ->once()
+        ->with('PAYPAL-ORDER-DENIED')
+        ->andReturn([
+            'id' => 'PAYPAL-ORDER-DENIED',
+            'status' => 'APPROVED',
+            'purchase_units' => [[
+                'reference_id' => $order->order_id,
+                'amount' => $amount,
+            ]],
+        ]);
+
+    $paypal->shouldReceive('getCapture')
+        ->once()
+        ->with('PAYPAL-CAPTURE-DENIED')
+        ->andReturn([
+            'id' => 'PAYPAL-CAPTURE-DENIED',
+            'status' => 'DENIED',
+            'amount' => $amount,
+            'supplementary_data' => [
+                'related_ids' => [
+                    'order_id' => 'PAYPAL-ORDER-DENIED',
+                ],
+            ],
+        ]);
+
+    $paypal->shouldNotReceive('confirmPayment');
+
+    app()->instance(PayPalService::class, $paypal);
+
+    $this->postJson('/api/payment/webhook/paypal', [
+        'id' => 'WH-CAPTURE-DENIED',
+        'event_type' => 'PAYMENT.CAPTURE.DENIED',
+        'resource' => [
+            'id' => 'PAYPAL-CAPTURE-DENIED',
+            'status' => 'DENIED',
+            'amount' => $amount,
+            'supplementary_data' => [
+                'related_ids' => [
+                    'order_id' => 'PAYPAL-ORDER-DENIED',
+                ],
+            ],
+        ],
+    ])
+        ->assertOk()
+        ->assertJsonPath('status', 'failed');
+
+    $this->assertDatabaseHas('payments', [
+        'payment_id' => 'PAYPAL-ORDER-DENIED',
+        'status' => 'failed',
+    ]);
+
+    $this->assertDatabaseCount('transactions', 0);
+
+    Event::assertNotDispatched(PaymentConfirmed::class);
+}
+
+public function test_invalid_paypal_denied_webhook_is_rejected(): void
+{
+    Event::fake([PaymentConfirmed::class]);
+
+    $user = User::factory()->create();
+
+    $order = Order::create([
+        'order_id' => 'ORD-DENIED-INVALID-' . uniqid(),
+        'tenant_id' => 1,
+        'user_id' => $user->user_id,
+        'total_amount' => '59.90',
+        'taxes' => 0,
+        'shipping_cost' => 0,
+        'status' => Order::STATUS_PAYMENT_PENDING,
+        'items' => [],
+        'shipping_address' => [],
+        'billing_address' => [],
+        'discount' => 0,
+    ]);
+
+    Payment::create([
+        'order_id' => $order->order_id,
+        'payment_id' => 'PAYPAL-ORDER-DENIED-INVALID',
+        'gateway' => 'paypal',
+        'status' => 'pending',
+        'amount' => '59.90',
+        'currency' => 'USD',
+        'email' => $user->email,
+        'user_id' => $user->user_id,
+        'tenant_id' => 1,
+    ]);
+
+    $amount = [
+        'currency_code' => 'USD',
+        'value' => '59.90',
+    ];
+
+    $paypal = Mockery::mock(PayPalService::class);
+
+    $paypal->shouldReceive('verifyWebhookRequest')
+        ->once()
+        ->andReturn(true);
+
+    $paypal->shouldReceive('getOrder')
+        ->once()
+        ->with('PAYPAL-ORDER-DENIED-INVALID')
+        ->andReturn([
+            'id' => 'PAYPAL-ORDER-DENIED-INVALID',
+            'status' => 'APPROVED',
+            'purchase_units' => [[
+                'reference_id' => $order->order_id,
+                'amount' => $amount,
+            ]],
+        ]);
+
+    // Simulamos que PayPal devuelve un importe incorrecto.
+    $paypal->shouldReceive('getCapture')
+        ->once()
+        ->with('PAYPAL-CAPTURE-DENIED-INVALID')
+        ->andReturn([
+            'id' => 'PAYPAL-CAPTURE-DENIED-INVALID',
+            'status' => 'DENIED',
+            'amount' => [
+                'currency_code' => 'USD',
+                'value' => '49.90',
+            ],
+            'supplementary_data' => [
+                'related_ids' => [
+                    'order_id' => 'PAYPAL-ORDER-DENIED-INVALID',
+                ],
+            ],
+        ]);
+
+    $paypal->shouldNotReceive('confirmPayment');
+
+    app()->instance(PayPalService::class, $paypal);
+
+    $this->postJson('/api/payment/webhook/paypal', [
+        'id' => 'WH-CAPTURE-DENIED-INVALID',
+        'event_type' => 'PAYMENT.CAPTURE.DENIED',
+        'resource' => [
+            'id' => 'PAYPAL-CAPTURE-DENIED-INVALID',
+            'status' => 'DENIED',
+            'amount' => $amount,
+            'supplementary_data' => [
+                'related_ids' => [
+                    'order_id' => 'PAYPAL-ORDER-DENIED-INVALID',
+                ],
+            ],
+        ],
+    ])
+        ->assertStatus(422);
+
+    $this->assertDatabaseHas('payments', [
+        'payment_id' => 'PAYPAL-ORDER-DENIED-INVALID',
+        'status' => 'pending',
+    ]);
+
+    $this->assertDatabaseCount('transactions', 0);
+
+    Event::assertNotDispatched(PaymentConfirmed::class);
+}
+
+public function test_paypal_payment_status_requires_authentication(): void
+{
+    $this->getJson(
+        '/api/payment/status/PAYPAL-ORDER-TEST'
+    )->assertUnauthorized();
+}
+
+public function test_user_cannot_view_another_users_paypal_payment_status(): void
+{
+    $owner = User::factory()->create();
+    $otherUser = User::factory()->create();
+
+    $order = Order::create([
+        'order_id' => 'ORD-PRIVATE-' . uniqid(),
+        'tenant_id' => 1,
+        'user_id' => $owner->user_id,
+        'total_amount' => '59.90',
+        'taxes' => 0,
+        'shipping_cost' => 0,
+        'status' => Order::STATUS_PAYMENT_PENDING,
+        'items' => [],
+        'shipping_address' => [],
+        'billing_address' => [],
+        'discount' => 0,
+    ]);
+
+    Payment::create([
+        'order_id' => $order->order_id,
+        'payment_id' => 'PAYPAL-PRIVATE-ORDER',
+        'gateway' => 'paypal',
+        'status' => 'pending',
+        'amount' => '59.90',
+        'currency' => 'USD',
+        'email' => $owner->email,
+        'user_id' => $owner->user_id,
+        'tenant_id' => 1,
+    ]);
+
+    $this->asJwt($otherUser)
+        ->getJson('/api/payment/status/PAYPAL-PRIVATE-ORDER')
+        ->assertNotFound();
+}
+
 public function test_paypal_conversion_preserves_original_amount(): void
 {
     $user = User::factory()->create();
