@@ -1,3 +1,4 @@
+
 <?php
 
 use Illuminate\Database\Migrations\Migration;
@@ -19,6 +20,12 @@ return new class extends Migration
         }
 
         // Solo se permite cambiar el tipo si la tabla esta vacia.
+        if (DB::getDriverName() === 'sqlite') {
+            // SQLite no admite MODIFY.
+            // Se conserva el esquema original para las pruebas.
+            return;
+        }
+
         DB::statement(
             'ALTER TABLE payments MODIFY amount DECIMAL(15,2) NOT NULL'
         );
