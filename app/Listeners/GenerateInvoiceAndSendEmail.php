@@ -36,7 +36,7 @@ class GenerateInvoiceAndSendEmail
                 'payment_id' => $payment->id,
             ]);
 
-            return;
+            throw new \RuntimeException('No se encontro el pedido del pago.');
         }
 
         // Actualizar solamente pedidos pendientes de pago.
@@ -51,12 +51,21 @@ class GenerateInvoiceAndSendEmail
             ]);
 
         if ($updated !== 1) {
-            Log::info('Pedido ya procesado o estado no permitido', [
-                'payment_id' => $payment->id,
-                'order_id' => $order->order_id,
-            ]);
+            $currentStatus = $order->fresh()?->status;
 
-            return;
+            // Una notificación repetida no debe volver a enviar correo.
+            if (in_array($currentStatus, [
+                Order::STATUS_PAID,
+                Order::STATUS_SHIPPED,
+                Order::STATUS_DELIVERED,
+            ], true)) {
+                return;
+            }
+
+            // No marcar el pago como completado si el pedido está cancelado.
+            throw new \RuntimeException(
+                'El pedido no admite confirmacion de pago.'
+            );
         }
 
         // Enviar correo una sola vez por transicion a pagado.
@@ -64,10 +73,10 @@ class GenerateInvoiceAndSendEmail
 
         if ($user && $user->email) {
             Mail::to($user->email)->queue(
-                new PaymentConfirmationMail(
+                (new PaymentConfirmationMail(
                     $order->fresh(),
                     $payment
-                )
+                ))->afterCommit()
             );
 
             Log::info('Correo de confirmacion encolado', [

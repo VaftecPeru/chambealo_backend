@@ -10,6 +10,7 @@ use App\Services\Payments\PayPalCaptureValidator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Throwable;
 use App\Services\Payments\PenToUsdConverter;
@@ -33,6 +34,30 @@ class PaymentController extends Controller
             ->only(['webhook']);
     }
 
+
+    /**
+     * Persistir pago, transacción y pedido en una sola transacción.
+     * El evento es síncrono; el correo se encola después del commit.
+     */
+    private function persistPaymentConfirmation(
+        string $paymentId,
+        string $status,
+        array $result
+    ): \App\Models\Payment {
+        return DB::transaction(function () use ($paymentId, $status, $result) {
+            $payment = $this->paymentRepository->updatePaymentStatus(
+                $paymentId,
+                $status,
+                $result
+            );
+
+            if (in_array(strtolower($status), ['completed', 'paid'], true)) {
+                event(new PaymentConfirmed($payment));
+            }
+
+            return $payment;
+        }, 3);
+    }
 
     /**
      * GET /api/payment/status/{paymentId}
@@ -526,20 +551,11 @@ class PaymentController extends Controller
                 );
             }
 
-            $payment = $this->paymentRepository
-                ->updatePaymentStatus(
-                    $validated['payment_id'],
-                    $status,
-                    $result
-                );
-
-            if (in_array(
+            $payment = $this->persistPaymentConfirmation(
+                $validated['payment_id'],
                 $status,
-                ['completed', 'paid'],
-                true
-            )) {
-                event(new PaymentConfirmed($payment));
-            }
+                $result
+            );
 
             Log::info('Payment confirmed', [
                 'payment_id' => $validated['payment_id'],
@@ -799,20 +815,11 @@ class PaymentController extends Controller
                 );
             }
 
-            $payment = $this->paymentRepository
-                ->updatePaymentStatus(
-                    $paymentId,
-                    $status,
-                    $result
-                );
-
-            if (in_array(
+            $payment = $this->persistPaymentConfirmation(
+                $paymentId,
                 $status,
-                ['completed', 'paid'],
-                true
-            )) {
-                event(new PaymentConfirmed($payment));
-            }
+                $result
+            );
 
             Log::info('Payment webhook processed', [
                 'gateway' => $gateway,
