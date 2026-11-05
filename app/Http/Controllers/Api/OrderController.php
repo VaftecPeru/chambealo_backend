@@ -165,57 +165,69 @@ class OrderController extends Controller
         $user = $request->user('api') ?? $request->user();
         $tenantId = app('tenant_id');
 
-        $order = Order::where('order_id', $orderId)
-            ->where('user_id', $user->user_id)
-            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
-            ->first();
+        return DB::transaction(function () use ($orderId, $user, $tenantId) {
+            // Bloquear primero y validar el estado real dentro de la transacción.
+            $order = Order::where('order_id', $orderId)
+                ->where('user_id', $user->user_id)
+                ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
+                ->lockForUpdate()
+                ->first();
 
-        if (!$order) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Pedido no encontrado.',
-            ], 404);
-        }
-
-        $allowedStatuses = [
-            Order::STATUS_CART,
-            Order::STATUS_CHECKOUT,
-            Order::STATUS_PAYMENT_PENDING,
-        ];
-
-        if (!in_array($order->status, $allowedStatuses, true)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Este pedido ya no puede ser cancelado.',
-            ], 422);
-        }
-
-        DB::transaction(function () use ($order, $tenantId) {
-            $lockedOrder = Order::whereKey($order->getKey())->lockForUpdate()->firstOrFail();
-
-            if ($lockedOrder->status === Order::STATUS_CANCELLED) {
-                return;
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado.',
+                ], 404);
             }
 
-            foreach (($lockedOrder->items ?? []) as $item) {
-                Product::where('product_id', $item['product_id'])
+            if (!$order->canTransitionTo(Order::STATUS_CANCELLED)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este pedido ya no puede ser cancelado.',
+                ], 422);
+            }
+
+            // No liberar inventario si el pago está activo o en revisión.
+            // El resultado externo debe aclararse antes de cancelar.
+            if ($order->payments()->whereIn('status', [
+                    'creating', 'creation_uncertain', 'pending', 'approved',
+                ])->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El pedido tiene un pago pendiente o en revisión.',
+                ], 409);
+            }
+
+            foreach (($order->items ?? []) as $item) {
+                $quantity = (int) ($item['quantity'] ?? 0);
+                $productId = $item['product_id'] ?? null;
+
+                if ($quantity < 1 || !$productId) {
+                    throw new \RuntimeException('Detalle de inventario del pedido inválido.');
+                }
+
+                $restored = Product::where('product_id', $productId)
                     ->when($tenantId, function ($query) use ($tenantId) {
                         $query->where(function ($tenantQuery) use ($tenantId) {
                             $tenantQuery->where('tenant_id', $tenantId)
                                 ->orWhereNull('tenant_id');
                         });
                     })
-                    ->increment('stock', (int) $item['quantity']);
+                    ->increment('stock', $quantity);
+
+                if ($restored !== 1) {
+                    throw new \RuntimeException('No se pudo restaurar el stock del pedido.');
+                }
             }
 
-            $lockedOrder->markAsCancelled();
-        });
+            $order->markAsCancelled();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Pedido cancelado correctamente.',
-            'order' => $order->fresh(),
-        ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Pedido cancelado correctamente.',
+                'order' => $order->fresh(),
+            ]);
+        }, 3);
     }
 
     public function updateStatus(Request $request, string $orderId)
@@ -226,39 +238,34 @@ class OrderController extends Controller
 
         $tenantId = app('tenant_id');
 
-        $order = Order::where('order_id', $orderId)
-            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
-            ->first();
+        return DB::transaction(function () use ($orderId, $validated, $tenantId) {
+            // Bloquear y verificar la transición dentro de la misma transacción.
+            $order = Order::where('order_id', $orderId)
+                ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
+                ->lockForUpdate()
+                ->first();
 
-        if (!$order) {
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado.',
+                ], 404);
+            }
+
+            if (!$order->canTransitionTo($validated['status'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Transición de estado no permitida.',
+                ], 422);
+            }
+
+            $order->update(['status' => $validated['status']]);
+
             return response()->json([
-                'success' => false,
-                'message' => 'Pedido no encontrado.',
-            ], 404);
-        }
-
-        if ($validated['status'] === Order::STATUS_SHIPPED && $order->status !== Order::STATUS_PAID) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Solo un pedido pagado puede marcarse como enviado.',
-            ], 422);
-        }
-
-        if ($validated['status'] === Order::STATUS_DELIVERED && $order->status !== Order::STATUS_SHIPPED) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Solo un pedido enviado puede marcarse como entregado.',
-            ], 422);
-        }
-
-        $validated['status'] === Order::STATUS_SHIPPED
-            ? $order->markAsShipped()
-            : $order->markAsDelivered();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Estado del pedido actualizado correctamente.',
-            'order' => $order->fresh(),
-        ]);
+                'success' => true,
+                'message' => 'Estado del pedido actualizado correctamente.',
+                'order' => $order->fresh(),
+            ]);
+        }, 3);
     }
 }
