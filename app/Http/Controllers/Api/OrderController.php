@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\InventoryMovement;
 use App\Models\Order;
 use App\Models\Product;
 use Illuminate\Http\Request;
@@ -67,6 +68,7 @@ class OrderController extends Controller
 
         $order = DB::transaction(function () use ($validated, $user, $tenantId) {
             $orderItems = [];
+            $reservedMovements = [];
             $subtotal = 0;
 
             // Suma cantidades repetidas y ordena por product_id para bloquear
@@ -127,7 +129,17 @@ class OrderController extends Controller
 
                 $subtotal += $itemSubtotal;
 
+                $stockBefore = (int) $product->stock;
                 $product->decrement('stock', $quantity);
+                $reservedMovements[] = [
+                    'product_id' => $product->product_id,
+                    'tenant_id' => $product->tenant_id,
+                    'type' => 'out',
+                    'quantity' => $quantity,
+                    'stock_before' => $stockBefore,
+                    'stock_after' => $stockBefore - $quantity,
+                    'reason' => 'Reserva de pedido',
+                ];
             }
 
             // Regla actual: impuestos, envío y descuentos se calculan únicamente
@@ -137,7 +149,7 @@ class OrderController extends Controller
             $discount = 0.0;
             $totalAmount = max(0, $subtotal + $taxes + $shippingCost - $discount);
 
-            return Order::create([
+            $order = Order::create([
                 'order_id' => 'ORD-' . strtoupper(Str::uuid()->toString()),
                 'tenant_id' => $tenantId,
                 'user_id' => $user->user_id,
@@ -151,6 +163,16 @@ class OrderController extends Controller
                 'coupon_code' => $validated['coupon_code'] ?? null,
                 'discount' => $discount,
             ]);
+
+            foreach ($reservedMovements as $movement) {
+                InventoryMovement::create($movement + [
+                    'performed_by' => $user->user_id,
+                    'reference_type' => 'order',
+                    'reference_id' => $order->order_id,
+                ]);
+            }
+
+            return $order;
         });
 
         return response()->json([
@@ -206,18 +228,38 @@ class OrderController extends Controller
                     throw new \RuntimeException('Detalle de inventario del pedido inválido.');
                 }
 
-                $restored = Product::where('product_id', $productId)
+                $product = Product::where('product_id', $productId)
                     ->when($tenantId, function ($query) use ($tenantId) {
                         $query->where(function ($tenantQuery) use ($tenantId) {
                             $tenantQuery->where('tenant_id', $tenantId)
                                 ->orWhereNull('tenant_id');
                         });
                     })
-                    ->increment('stock', $quantity);
+                    ->lockForUpdate()
+                    ->first();
 
-                if ($restored !== 1) {
+                if (!$product) {
                     throw new \RuntimeException('No se pudo restaurar el stock del pedido.');
                 }
+
+                $stockBefore = (int) $product->stock;
+                if ($stockBefore + $quantity > 2147483647) {
+                    throw new \RuntimeException('El stock excede el limite permitido.');
+                }
+                $product->increment('stock', $quantity);
+
+                InventoryMovement::create([
+                    'product_id' => $product->product_id,
+                    'performed_by' => $user->user_id,
+                    'tenant_id' => $product->tenant_id,
+                    'type' => 'in',
+                    'quantity' => $quantity,
+                    'stock_before' => $stockBefore,
+                    'stock_after' => $stockBefore + $quantity,
+                    'reason' => 'Cancelacion de pedido',
+                    'reference_type' => 'order',
+                    'reference_id' => $order->order_id,
+                ]);
             }
 
             $order->markAsCancelled();

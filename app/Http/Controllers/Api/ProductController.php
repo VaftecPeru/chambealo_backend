@@ -95,7 +95,37 @@ class ProductController extends Controller
             ], 403);
         }
 
-        $product->update($data);
+        // El cambio del producto y su movimiento quedan en la misma transacción.
+        // Bloquear la fila evita calcular stock_before sobre un valor concurrente.
+        $product = \Illuminate\Support\Facades\DB::transaction(function () use ($product, $request, $data) {
+            $locked = Product::whereKey($product->getKey())->lockForUpdate()->firstOrFail();
+
+            if (!$this->canManageBrand($request, (int) $locked->brand_id)) {
+                abort(403, 'No autorizado para modificar este producto.');
+            }
+
+            $before = (int) $locked->stock;
+            $after = array_key_exists('stock', $data) ? (int) $data['stock'] : $before;
+            $locked->update($data);
+
+            if ($after !== $before) {
+                \App\Models\InventoryMovement::create([
+                    'product_id' => $locked->product_id,
+                    'performed_by' => (int) ($request->user('api') ?? $request->user())->user_id,
+                    'tenant_id' => $locked->tenant_id,
+                    'type' => 'adjust',
+                    'quantity' => abs($after - $before),
+                    'stock_before' => $before,
+                    'stock_after' => $after,
+                    'reason' => 'Ajuste desde edición administrativa de producto',
+                    'reference_type' => 'product_update',
+                    'reference_id' => (string) $locked->product_id,
+                ]);
+            }
+
+            return $locked;
+        }, 3);
+
         $product->load(['brand', 'category', 'media']);
 
         return response()->json([
