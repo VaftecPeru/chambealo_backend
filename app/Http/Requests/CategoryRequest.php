@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Category;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -26,6 +27,7 @@ class CategoryRequest extends FormRequest
     {
         $category = $this->route('category');
         $id = $category?->category_id;
+        $presence = $this->isMethod('post') ? 'required' : 'sometimes';
 
         $parentRules = ['nullable', 'integer', 'exists:categories,category_id'];
         if ($id) {
@@ -34,11 +36,43 @@ class CategoryRequest extends FormRequest
         }
 
         return [
-            'name'        => ['required', 'string', 'max:255'],
-            'slug'        => ['required', 'string', 'max:255',
+            'name'        => [$presence, 'string', 'max:255'],
+            'slug'        => [$presence, 'string', 'max:255',
                               Rule::unique('categories', 'slug')->ignore($id, 'category_id')],
             'parent_id'   => $parentRules,
             'description' => ['nullable', 'string', 'max:1000'],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            if ($validator->errors()->isNotEmpty() || !$this->has('parent_id')) {
+                return;
+            }
+
+            $category = $this->route('category');
+            $parentId = $this->input('parent_id');
+
+            if (!$category || $parentId === null) {
+                return;
+            }
+
+            // Impedir ciclos: A -> B -> C -> A.
+            $visited = [];
+            while ($parentId) {
+                $parentId = (int) $parentId;
+
+                if ($parentId === (int) $category->category_id
+                    || isset($visited[$parentId])) {
+                    $validator->errors()->add('parent_id',
+                        'La categoría padre crearía un ciclo.');
+                    return;
+                }
+
+                $visited[$parentId] = true;
+                $parentId = Category::whereKey($parentId)->value('parent_id');
+            }
+        });
     }
 }

@@ -8,6 +8,24 @@ class ProductResource extends JsonResource
 {
     public function toArray($request): array
     {
+        $picture = $this->resource->relationLoaded('media')
+            ? $this->resource->media
+                ->filter(fn ($item) => str_starts_with((string) $item->file_type, 'image/'))
+                ->sortByDesc('media_id')
+                ->first()
+            : $this->resource->media()
+                ->where('file_type', 'like', 'image/%')
+                ->orderByDesc('media_id')
+                ->first();
+
+        $imageUrl = null;
+        if ($picture && $picture->file_url) {
+            $storedPath = (string) $picture->file_url;
+            $imageUrl = preg_match('~^https?://~i', $storedPath)
+                ? $storedPath
+                : url(\Illuminate\Support\Facades\Storage::disk('public')->url($storedPath));
+        }
+
         return [
             'id'             => $this->product_id,
             'product_id'     => $this->product_id,
@@ -26,6 +44,7 @@ class ProductResource extends JsonResource
                 'id'   => $this->category->category_id,
                 'name' => $this->category->name,
             ]),
+            'image_url'      => $imageUrl,
             'created_at'     => $this->created_at,
         ];
     }

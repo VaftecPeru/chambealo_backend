@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ProductRequest;
 use App\Http\Resources\ProductResource;
+use App\Models\Brand;
 use App\Models\Product;
 use Illuminate\Http\Request;
 
@@ -13,7 +14,7 @@ class ProductController extends Controller
     // Listado público: no muestra productos inactivos.
     public function index(Request $request)
     {
-        $query = Product::with(['brand', 'category'])->where('status', '!=', 'inactive');
+        $query = Product::with(['brand', 'category', 'media'])->where('status', '!=', 'inactive');
 
         if ($request->filled('category_id')) {
             $query->where('category_id', (int) $request->input('category_id'));
@@ -42,12 +43,21 @@ class ProductController extends Controller
 
     public function store(ProductRequest $request)
     {
-        $product = Product::create($request->validated());
-        $product->load(['brand', 'category']);
+        $data = $request->validated();
+
+        if (!$this->canManageBrand($request, (int) $data['brand_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No autorizado para gestionar productos de esta marca.',
+            ], 403);
+        }
+
+        $product = Product::create($data);
+        $product->load(['brand', 'category', 'media']);
 
         return response()->json([
             'success' => true,
-            'data'    => (new ProductResource($product))->resolve(),
+            'data' => (new ProductResource($product))->resolve(),
         ], 201);
     }
 
@@ -57,7 +67,7 @@ class ProductController extends Controller
             return response()->json(['success' => false, 'message' => 'Producto no encontrado.'], 404);
         }
 
-        $product->load(['brand', 'category']);
+        $product->load(['brand', 'category', 'media']);
 
         return response()->json([
             'success' => true,
@@ -67,28 +77,105 @@ class ProductController extends Controller
 
     public function update(ProductRequest $request, Product $product)
     {
-        $product->update($request->validated());
-        $product->load(['brand', 'category']);
+        if (!$this->canManageBrand($request, (int) $product->brand_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No autorizado para modificar este producto.',
+            ], 403);
+        }
+
+        $data = $request->validated();
+
+        // Un vendedor tampoco puede trasladar su producto a una marca ajena.
+        if (isset($data['brand_id'])
+            && !$this->canManageBrand($request, (int) $data['brand_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No autorizado para utilizar esta marca.',
+            ], 403);
+        }
+
+        $product->update($data);
+        $product->load(['brand', 'category', 'media']);
 
         return response()->json([
             'success' => true,
-            'data'    => (new ProductResource($product))->resolve(),
+            'data' => (new ProductResource($product))->resolve(),
         ]);
     }
 
-    public function destroy(Product $product)
+    /**
+     * Cargar fotografía de un producto (solo administradores).
+     */
+    public function uploadImage(Request $request, Product $product)
     {
+        $request->validate([
+            'image' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+        ]);
+
+        $file = $request->file('image');
+        $path = $file->store('products', 'public');
+
+        try {
+            $product->media()->create([
+                'file_url' => $path,
+                'file_type' => $file->getMimeType(),
+                'uploaded_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($path);
+            throw $e;
+        }
+
+        $product->load(['brand', 'category', 'media']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Imagen guardada correctamente.',
+            'data' => (new \App\Http\Resources\ProductResource($product))->resolve(),
+        ], 201);
+    }
+
+    public function destroy(Request $request, Product $product)
+    {
+        if (!$this->canManageBrand($request, (int) $product->brand_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No autorizado para eliminar este producto.',
+            ], 403);
+        }
+
         $product->delete();
 
         return response()->json(['success' => true, 'message' => 'Producto eliminado.']);
     }
 
-        // Pendiente de C-037: la tabla products aún no tiene dueño (user_id).
-    public function myProducts()
+    public function myProducts(Request $request)
     {
+        $user = $request->user('api') ?? $request->user();
+
+        $products = Product::with(['brand', 'category', 'media'])
+            ->whereHas('brand', fn ($query) => $query->where('user_id', $user->user_id))
+            ->orderByDesc('product_id')
+            ->get();
+
         return response()->json([
-            'success' => false,
-            'message' => 'Aún no disponible: los productos no tienen vendedor asignado.',
-        ], 501);
+            'success' => true,
+            'data' => ProductResource::collection($products)->resolve(),
+        ]);
     }
+
+    private function canManageBrand(Request $request, int $brandId): bool
+    {
+        $user = $request->user('api') ?? $request->user();
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return Brand::whereKey($brandId)
+            ->where('user_id', $user->user_id)
+            ->exists();
+    }
+
 }

@@ -11,10 +11,21 @@ class BrandController extends Controller
      * Display a listing of the resource.
      */
     public function index()
-    {
-        //
-    }
+{
+    $brands = \App\Models\Brand::query()
+        ->where('visibility_status', 'visible')
+        ->orderBy('brand_name')
+        ->get()
+        ->map(fn ($brand) => [
+            'id' => $brand->brand_id,
+            'name' => $brand->brand_name,
+        ]);
 
+    return response()->json([
+        'success' => true,
+        'data' => $brands,
+    ]);
+}
     /**
      * Store a newly created resource in storage.
      */

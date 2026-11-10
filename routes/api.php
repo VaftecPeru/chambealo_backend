@@ -132,6 +132,7 @@ Route::middleware(['auth:api', 'active', 'role:vendor,admin'])->group(function (
 // Admin only routes
 Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
     Route::post('/categories', [CategoryController::class, 'store']);
+    Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
     Route::put('/categories/{category}', [CategoryController::class, 'update']);
     Route::delete('/categories/{category}', [CategoryController::class, 'destroy']);
 

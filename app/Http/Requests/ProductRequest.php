@@ -24,15 +24,16 @@ class ProductRequest extends FormRequest
     public function rules(): array
     {
         $id = $this->route('product')?->product_id;
+        $presence = $this->isMethod('post') ? 'required' : 'sometimes';
 
         return [
-            'brand_id'       => ['required', 'integer', 'exists:brands,brand_id'],
-            'category_id'    => ['required', 'integer', 'exists:categories,category_id'],
-            'name'           => ['required', 'string', 'max:255'],
-            'slug'           => ['required', 'string', 'max:255',
+            'brand_id'       => [$presence, 'integer', 'exists:brands,brand_id'],
+            'category_id'    => [$presence, 'integer', 'exists:categories,category_id'],
+            'name'           => [$presence, 'string', 'max:255'],
+            'slug'           => [$presence, 'string', 'max:255',
                                  Rule::unique('products', 'slug')->ignore($id, 'product_id')],
             'description'    => ['nullable', 'string', 'max:5000'],
-            'price'          => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            'price'          => [$presence, 'numeric', 'min:0', 'max:99999999.99'],
             'stock'          => ['sometimes', 'integer', 'min:0'],
             'status'         => ['sometimes', Rule::in(['active', 'inactive', 'out_of_stock'])],
             'specifications' => ['nullable', 'array'],
