@@ -15,6 +15,12 @@ class AdminCrudC037Test extends TestCase
 
     private function asJwt(User $user): static
     {
+        // Test fixture: authenticated users must have an explicit tenant context.
+        // This does not grant access to another tenant or change production defaults.
+        if ($user->tenant_id === null) {
+            $user->forceFill(['tenant_id' => 1])->save();
+        }
+
         $token = auth('api')->login($user);
         return $this->withHeader('Authorization', 'Bearer ' . $token);
     }
