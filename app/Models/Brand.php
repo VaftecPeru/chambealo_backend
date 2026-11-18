@@ -21,6 +21,15 @@ class Brand extends Model
         'visibility_status'
     ];
 
+    // Atributos calculados que se incluyen en el JSON
+    protected $appends = ['name'];
+
+    // Alias: brand.name -> brand_name
+    public function getNameAttribute()
+    {
+        return $this->brand_name;
+    }
+
     // Relaciones
     public function user()
     {

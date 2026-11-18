@@ -20,6 +20,29 @@ class Order extends Model
     public const STATUS_DELIVERED = 'delivered';
     public const STATUS_CANCELLED = 'cancelled';
 
+    /**
+     * Transiciones válidas. No se permiten retrocesos ni saltos de etapa.
+     * checkout -> paid se admite para confirmaciones de pago ya existentes.
+     */
+    private const ALLOWED_TRANSITIONS = [
+        self::STATUS_CART => [self::STATUS_CHECKOUT, self::STATUS_CANCELLED],
+        self::STATUS_CHECKOUT => [self::STATUS_PAYMENT_PENDING, self::STATUS_PAID, self::STATUS_CANCELLED],
+        self::STATUS_PAYMENT_PENDING => [self::STATUS_PAID, self::STATUS_CANCELLED],
+        self::STATUS_PAID => [self::STATUS_SHIPPED],
+        self::STATUS_SHIPPED => [self::STATUS_DELIVERED],
+        self::STATUS_DELIVERED => [],
+        self::STATUS_CANCELLED => [],
+    ];
+
+    public function canTransitionTo(string $nextStatus): bool
+    {
+        return in_array(
+            $nextStatus,
+            self::ALLOWED_TRANSITIONS[$this->status] ?? [],
+            true
+        );
+    }
+
     protected $fillable = [
         'order_id',
         'tenant_id',

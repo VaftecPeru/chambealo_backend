@@ -4,8 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
 use Illuminate\Support\Facades\Hash;
+use Tests\TestCase;
 
 class AuthSecurityTest extends TestCase
 {
@@ -13,34 +13,36 @@ class AuthSecurityTest extends TestCase
 
     public function test_brute_force_protection()
     {
-        $user = User::factory()->create([
+        User::factory()->create([
             'email' => 'test@example.com',
-            'password_hash' => Hash::make('password')
+            'password_hash' => Hash::make('password'),
         ]);
 
-        // Intentar login múltiples veces
+        // Realizar seis intentos con una contraseña incorrecta.
         for ($i = 0; $i < 6; $i++) {
-            $response = $this->postJson('/api/login', [
+            $response = $this->withServerVariables([
+                'REMOTE_ADDR' => '192.0.2.10',
+            ])->postJson('/api/login', [
                 'email' => 'test@example.com',
-                'password' => 'wrong_password'
+                'password' => 'wrong_password',
             ]);
         }
 
-        $response->assertStatus(429); // Too Many Requests
+        $response->assertStatus(429);
     }
+
 
     public function test_token_refresh_security()
     {
         $user = User::factory()->create();
-        $token = auth()->login($user);
+        auth()->login($user);
 
-
-        // Intentar usar refresh token múltiples veces
+        // Intentar renovar el token varias veces.
         $refreshToken = 'fake_refresh_token';
 
         for ($i = 0; $i < 11; $i++) {
             $response = $this->postJson('/api/refresh', [
-                'refresh_token' => $refreshToken
+                'refresh_token' => $refreshToken,
             ]);
         }
 
@@ -50,12 +52,12 @@ class AuthSecurityTest extends TestCase
     public function test_inactive_user_cannot_login()
     {
         $user = User::factory()->create([
-            'status' => 'suspended'
+            'status' => 'suspended',
         ]);
 
         $response = $this->postJson('/api/login', [
             'email' => $user->email,
-            'password' => 'password'
+            'password' => 'password',
         ]);
 
         $response->assertStatus(403);

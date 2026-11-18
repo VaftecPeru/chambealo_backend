@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\PaymentController as ApiPaymentController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\InventoryMovementController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\PayPalController;
@@ -82,6 +83,11 @@ Route::middleware(['auth:api', 'active'])->group(function () {
             ->name('api.payment.session');
         Route::post('/confirm', [PaymentController::class, 'confirm'])
             ->name('api.payment.confirm');
+        Route::get('/status/{paymentId}', [
+            PaymentController::class,
+            'getPaymentStatus'
+        ])->middleware('throttle:30,1')
+        ->name('api.payment.status');
     });
 
     // Legacy payment endpoints
@@ -119,6 +125,10 @@ Route::middleware(['auth:api', 'active', 'role:vendor,admin'])->group(function (
     Route::put('/products/{product}', [ProductController::class, 'update']);
     Route::delete('/products/{product}', [ProductController::class, 'destroy']);
 
+    // C-038: movimientos manuales e historial de inventario.
+    Route::get('/inventory/movements', [InventoryMovementController::class, 'index']);
+    Route::post('/inventory/movements', [InventoryMovementController::class, 'store']);
+
     Route::post('/brands', [BrandController::class, 'store']);
     Route::put('/brands/{brand}', [BrandController::class, 'update']);
     Route::delete('/brands/{brand}', [BrandController::class, 'destroy']);
@@ -127,6 +137,7 @@ Route::middleware(['auth:api', 'active', 'role:vendor,admin'])->group(function (
 // Admin only routes
 Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
     Route::post('/categories', [CategoryController::class, 'store']);
+    Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
     Route::put('/categories/{category}', [CategoryController::class, 'update']);
     Route::delete('/categories/{category}', [CategoryController::class, 'destroy']);
 

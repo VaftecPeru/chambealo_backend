@@ -75,26 +75,27 @@ class Transaction extends Model
      * === TODOS LOS CASTS ORIGINALES SE CONSERVAN ===
      * === SE AGREGARON LOS NUEVOS CASTS ===
      */
-    protected $casts = [
-        // === CASTS ORIGINALES DEL BACKEND ===
-        'raw_data' => 'array',
-        'request_payload' => 'array',
-        'response_payload' => 'array',
-        'amount' => 'float',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-        
-        // === NUEVOS CASTS AGREGADOS PARA FRONTEND ===
-        'customer_data' => 'array',
-        'payment_details' => 'array',
-        'amount' => 'decimal:2',  // Mezcla: mantiene float pero especifica decimal para frontend
-        'paid_at' => 'datetime'
-    ];
+protected $casts = [
+    // Datos de pagos
+    'raw_data' => 'array',
+    'request_payload' => 'array',
+    'response_payload' => 'array',
 
+    // Importe monetario con dos decimales
+    'amount' => 'decimal:2',
+
+    // Datos adicionales
+    'customer_data' => 'array',
+    'payment_details' => 'array',
+
+    // Fechas
+    'created_at' => 'datetime',
+    'updated_at' => 'datetime',
+    'paid_at' => 'datetime',
+];
     // ============================================================
     // === RELACIONES ORIGINALES DEL BACKEND (TODAS CONSERVADAS) ===
     // ============================================================
-    
     /**
      * Get the payment associated with this transaction
      */

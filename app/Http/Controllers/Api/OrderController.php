@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\InventoryMovement;
 use App\Models\Order;
 use App\Models\Product;
 use Illuminate\Http\Request;
@@ -67,9 +68,22 @@ class OrderController extends Controller
 
         $order = DB::transaction(function () use ($validated, $user, $tenantId) {
             $orderItems = [];
+            $reservedMovements = [];
             $subtotal = 0;
 
-            foreach ($validated['items'] as $item) {
+            // Suma cantidades repetidas y ordena por product_id para bloquear
+            // siempre en el mismo orden (evita bloqueos cruzados entre pedidos).
+            $requestedItems = collect($validated['items'])
+                ->groupBy('product_id')
+                ->map(fn ($group, $productId) => [
+                    'product_id' => (int) $productId,
+                    'quantity' => (int) $group->sum('quantity'),
+                ])
+                ->sortKeys()
+                ->values()
+                ->all();
+
+            foreach ($requestedItems as $item) {
                 $product = Product::active()
                     ->where('product_id', $item['product_id'])
                     ->when($tenantId, function ($query) use ($tenantId) {
@@ -84,14 +98,20 @@ class OrderController extends Controller
                 if (!$product) {
                     throw new HttpResponseException(response()->json([
                         'success' => false,
+                        'code' => 'product_unavailable',
                         'message' => 'Uno de los productos no existe o no está disponible.',
+                        'product_id' => $item['product_id'],
                     ], 422));
                 }
 
                 if ((int) $product->stock < (int) $item['quantity']) {
                     throw new HttpResponseException(response()->json([
                         'success' => false,
+                        'code' => 'insufficient_stock',
                         'message' => "Stock insuficiente para el producto {$product->name}.",
+                        'product_id' => $product->product_id,
+                        'requested' => (int) $item['quantity'],
+                        'available' => (int) $product->stock,
                     ], 422));
                 }
 
@@ -109,7 +129,17 @@ class OrderController extends Controller
 
                 $subtotal += $itemSubtotal;
 
+                $stockBefore = (int) $product->stock;
                 $product->decrement('stock', $quantity);
+                $reservedMovements[] = [
+                    'product_id' => $product->product_id,
+                    'tenant_id' => $product->tenant_id,
+                    'type' => 'out',
+                    'quantity' => $quantity,
+                    'stock_before' => $stockBefore,
+                    'stock_after' => $stockBefore - $quantity,
+                    'reason' => 'Reserva de pedido',
+                ];
             }
 
             // Regla actual: impuestos, envío y descuentos se calculan únicamente
@@ -119,7 +149,7 @@ class OrderController extends Controller
             $discount = 0.0;
             $totalAmount = max(0, $subtotal + $taxes + $shippingCost - $discount);
 
-            return Order::create([
+            $order = Order::create([
                 'order_id' => 'ORD-' . strtoupper(Str::uuid()->toString()),
                 'tenant_id' => $tenantId,
                 'user_id' => $user->user_id,
@@ -133,6 +163,16 @@ class OrderController extends Controller
                 'coupon_code' => $validated['coupon_code'] ?? null,
                 'discount' => $discount,
             ]);
+
+            foreach ($reservedMovements as $movement) {
+                InventoryMovement::create($movement + [
+                    'performed_by' => $user->user_id,
+                    'reference_type' => 'order',
+                    'reference_id' => $order->order_id,
+                ]);
+            }
+
+            return $order;
         });
 
         return response()->json([
@@ -147,57 +187,89 @@ class OrderController extends Controller
         $user = $request->user('api') ?? $request->user();
         $tenantId = app('tenant_id');
 
-        $order = Order::where('order_id', $orderId)
-            ->where('user_id', $user->user_id)
-            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
-            ->first();
+        return DB::transaction(function () use ($orderId, $user, $tenantId) {
+            // Bloquear primero y validar el estado real dentro de la transacción.
+            $order = Order::where('order_id', $orderId)
+                ->where('user_id', $user->user_id)
+                ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
+                ->lockForUpdate()
+                ->first();
 
-        if (!$order) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Pedido no encontrado.',
-            ], 404);
-        }
-
-        $allowedStatuses = [
-            Order::STATUS_CART,
-            Order::STATUS_CHECKOUT,
-            Order::STATUS_PAYMENT_PENDING,
-        ];
-
-        if (!in_array($order->status, $allowedStatuses, true)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Este pedido ya no puede ser cancelado.',
-            ], 422);
-        }
-
-        DB::transaction(function () use ($order, $tenantId) {
-            $lockedOrder = Order::whereKey($order->getKey())->lockForUpdate()->firstOrFail();
-
-            if ($lockedOrder->status === Order::STATUS_CANCELLED) {
-                return;
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado.',
+                ], 404);
             }
 
-            foreach (($lockedOrder->items ?? []) as $item) {
-                Product::where('product_id', $item['product_id'])
+            if (!$order->canTransitionTo(Order::STATUS_CANCELLED)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este pedido ya no puede ser cancelado.',
+                ], 422);
+            }
+
+            // No liberar inventario si el pago está activo o en revisión.
+            // El resultado externo debe aclararse antes de cancelar.
+            if ($order->payments()->whereIn('status', [
+                    'creating', 'creation_uncertain', 'pending', 'approved',
+                ])->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El pedido tiene un pago pendiente o en revisión.',
+                ], 409);
+            }
+
+            foreach (($order->items ?? []) as $item) {
+                $quantity = (int) ($item['quantity'] ?? 0);
+                $productId = $item['product_id'] ?? null;
+
+                if ($quantity < 1 || !$productId) {
+                    throw new \RuntimeException('Detalle de inventario del pedido inválido.');
+                }
+
+                $product = Product::where('product_id', $productId)
                     ->when($tenantId, function ($query) use ($tenantId) {
                         $query->where(function ($tenantQuery) use ($tenantId) {
                             $tenantQuery->where('tenant_id', $tenantId)
                                 ->orWhereNull('tenant_id');
                         });
                     })
-                    ->increment('stock', (int) $item['quantity']);
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$product) {
+                    throw new \RuntimeException('No se pudo restaurar el stock del pedido.');
+                }
+
+                $stockBefore = (int) $product->stock;
+                if ($stockBefore + $quantity > 2147483647) {
+                    throw new \RuntimeException('El stock excede el limite permitido.');
+                }
+                $product->increment('stock', $quantity);
+
+                InventoryMovement::create([
+                    'product_id' => $product->product_id,
+                    'performed_by' => $user->user_id,
+                    'tenant_id' => $product->tenant_id,
+                    'type' => 'in',
+                    'quantity' => $quantity,
+                    'stock_before' => $stockBefore,
+                    'stock_after' => $stockBefore + $quantity,
+                    'reason' => 'Cancelacion de pedido',
+                    'reference_type' => 'order',
+                    'reference_id' => $order->order_id,
+                ]);
             }
 
-            $lockedOrder->markAsCancelled();
-        });
+            $order->markAsCancelled();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Pedido cancelado correctamente.',
-            'order' => $order->fresh(),
-        ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Pedido cancelado correctamente.',
+                'order' => $order->fresh(),
+            ]);
+        }, 3);
     }
 
     public function updateStatus(Request $request, string $orderId)
@@ -208,39 +280,34 @@ class OrderController extends Controller
 
         $tenantId = app('tenant_id');
 
-        $order = Order::where('order_id', $orderId)
-            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
-            ->first();
+        return DB::transaction(function () use ($orderId, $validated, $tenantId) {
+            // Bloquear y verificar la transición dentro de la misma transacción.
+            $order = Order::where('order_id', $orderId)
+                ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
+                ->lockForUpdate()
+                ->first();
 
-        if (!$order) {
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado.',
+                ], 404);
+            }
+
+            if (!$order->canTransitionTo($validated['status'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Transición de estado no permitida.',
+                ], 422);
+            }
+
+            $order->update(['status' => $validated['status']]);
+
             return response()->json([
-                'success' => false,
-                'message' => 'Pedido no encontrado.',
-            ], 404);
-        }
-
-        if ($validated['status'] === Order::STATUS_SHIPPED && $order->status !== Order::STATUS_PAID) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Solo un pedido pagado puede marcarse como enviado.',
-            ], 422);
-        }
-
-        if ($validated['status'] === Order::STATUS_DELIVERED && $order->status !== Order::STATUS_SHIPPED) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Solo un pedido enviado puede marcarse como entregado.',
-            ], 422);
-        }
-
-        $validated['status'] === Order::STATUS_SHIPPED
-            ? $order->markAsShipped()
-            : $order->markAsDelivered();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Estado del pedido actualizado correctamente.',
-            'order' => $order->fresh(),
-        ]);
+                'success' => true,
+                'message' => 'Estado del pedido actualizado correctamente.',
+                'order' => $order->fresh(),
+            ]);
+        }, 3);
     }
 }
