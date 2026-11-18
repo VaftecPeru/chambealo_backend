@@ -8,6 +8,9 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Tymon\JWTAuth\Exceptions\JWTException;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthController extends Controller
@@ -40,10 +43,14 @@ class AuthController extends Controller
                 ]
             ], 201);
 
+        } catch (ValidationException $e) {
+            // Laravel lo convierte en 422 con los errores por campo
+            throw $e;
         } catch (\Exception $e) {
+            Log::error('Registration failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'error' => 'Registration failed',
-                'message' => $e->getMessage()
+                'message' => 'No se pudo completar el registro'
             ], 500);
         }
     }
@@ -87,10 +94,13 @@ class AuthController extends Controller
                 ]
             ]);
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
+            Log::error('Login failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'error' => 'Login failed',
-                'message' => $e->getMessage()
+                'message' => 'No se pudo iniciar sesión'
             ], 500);
         }
     }
@@ -100,7 +110,11 @@ class AuthController extends Controller
         try {
             JWTAuth::invalidate(JWTAuth::getToken());
             return response()->json(['message' => 'Logout exitoso'], 200);
+        } catch (JWTException $e) {
+            // Token ausente, inválido o vencido
+            return response()->json(['error' => 'Token inválido o vencido'], 401);
         } catch (\Exception $e) {
+            Log::error('Logout failed', ['error' => $e->getMessage()]);
             return response()->json(['error' => 'Logout failed'], 500);
         }
     }
@@ -112,10 +126,15 @@ class AuthController extends Controller
             if (!$user) {
                 return response()->json(['error' => 'No autenticado'], 401);
             }
-            // Para múltiples dispositivos, necesitarías implementar blacklist de tokens
+            // OJO: hoy esto solo invalida el token actual (igual que logout).
+            // Para cerrar todos los dispositivos hace falta guardar, por ejemplo,
+            // la fecha del último cierre global y rechazar tokens emitidos antes.
             JWTAuth::invalidate(JWTAuth::getToken());
             return response()->json(['message' => 'Logout exitoso'], 200);
+        } catch (JWTException $e) {
+            return response()->json(['error' => 'Token inválido o vencido'], 401);
         } catch (\Exception $e) {
+            Log::error('Logout all failed', ['error' => $e->getMessage()]);
             return response()->json(['error' => 'Error al cerrar sesión'], 500);
         }
     }
@@ -137,40 +156,44 @@ class AuthController extends Controller
                 ]
             ], 200);
         } catch (\Exception $e) {
+            Log::error('Profile failed', ['error' => $e->getMessage()]);
             return response()->json(['error' => 'Error al obtener perfil'], 500);
         }
     }
 
-   public function updateProfile(Request $request)
-{
-    try {
-        $user = auth('api')->user();
-        if (!$user) {
-            return response()->json(['error' => 'No autenticado'], 401);
+    public function updateProfile(Request $request)
+    {
+        try {
+            $user = auth('api')->user();
+            if (!$user) {
+                return response()->json(['error' => 'No autenticado'], 401);
+            }
+
+            $request->validate([
+                'full_name' => 'sometimes|string|max:255',
+                'email' => 'sometimes|string|email|max:255|unique:users,email,' . $user->user_id . ',user_id',
+            ]);
+
+            $user->update($request->only(['full_name', 'email']));
+
+            return response()->json([
+                'message' => 'Perfil actualizado exitosamente',
+                'user' => [
+                    'user_id' => $user->user_id,
+                    'name' => $user->full_name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                ],
+            ], 200);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('Update profile failed', ['error' => $e->getMessage()]);
+            return response()->json([
+                'error' => 'Error al actualizar perfil'
+            ], 500);
         }
-
-        $request->validate([
-            'full_name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|string|email|max:255|unique:users,email,' . $user->user_id . ',user_id',
-        ]);
-
-        $user->update($request->only(['full_name', 'email']));
-
-        return response()->json([
-            'message' => 'Perfil actualizado exitosamente',
-            'user' => [
-                'user_id' => $user->user_id,
-                'name' => $user->full_name,
-                'email' => $user->email,
-                'role' => $user->role,
-            ],
-        ], 200);
-    } catch (\Exception $e) {
-        return response()->json([
-            'error' => 'Error al actualizar perfil: ' . $e->getMessage()
-        ], 500);
     }
-}
 
     public function refresh(Request $request)
     {
