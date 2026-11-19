@@ -55,6 +55,12 @@ class PayPalCheckoutSessionTest extends TestCase
 
     private function authenticate(User $user): void
     {
+        // Payment-session fixtures must belong to the same tenant as the order.
+        // Cross-tenant rejection remains enforced by TenantMiddleware.
+        if ($user->tenant_id === null) {
+            $user->forceFill(['tenant_id' => 1])->save();
+        }
+
         $token = auth('api')->login($user);
 
         $this->withHeader(
