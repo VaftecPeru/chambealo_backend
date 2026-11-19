@@ -34,7 +34,6 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::get('/brands/{brand}', [BrandController::class, 'show']);
     Route::get('/products', [ProductController::class, 'index']);
     Route::get('/products/{product}', [ProductController::class, 'show']);
-    Route::post('/process-payment', [ApiPaymentController::class, 'process']);
 });
 
 // Unified Payment Webhooks (NO AUTH, WITH SIGNATURE VALIDATION)
@@ -89,6 +88,9 @@ Route::middleware(['auth:api', 'active'])->group(function () {
         ])->middleware('throttle:30,1')
         ->name('api.payment.status');
     });
+
+    // Legacy Mercado Pago processing requires an authenticated account.
+    Route::post('/process-payment', [ApiPaymentController::class, 'process']);
 
     // Legacy payment endpoints
     Route::prefix('v1')->group(function () {
