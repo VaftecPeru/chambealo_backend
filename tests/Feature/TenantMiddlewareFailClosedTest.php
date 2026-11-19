@@ -103,4 +103,25 @@ class TenantMiddlewareFailClosedTest extends TestCase
         $this->assertSame(401, $response->getStatusCode());
         $this->assertFalse(app()->bound('tenant_id'), 'Tenant context leaked across requests');
     }
+
+    public function test_denied_authenticated_request_clears_prior_tenant_context(): void
+    {
+        app()->instance('tenant_id', 2);
+
+        $request = Request::create('/api/orders', 'GET', ['tenant_id' => 2]);
+        $request->setUserResolver(fn ($guard = null) => (object) [
+            'user_id' => 99,
+            'tenant_id' => null,
+        ]);
+
+        $downstreamCalled = false;
+        $response = (new TenantMiddleware())->handle($request, function () use (&$downstreamCalled) {
+            $downstreamCalled = true;
+            return response()->json(['allowed' => true]);
+        });
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($downstreamCalled);
+        $this->assertFalse(app()->bound('tenant_id'), 'Stale tenant context survived a forbidden request');
+    }
 }
