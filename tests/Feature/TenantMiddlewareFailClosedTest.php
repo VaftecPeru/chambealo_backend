@@ -42,4 +42,44 @@ class TenantMiddlewareFailClosedTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame(2, $response->getData(true)['resolved_tenant_id']);
     }
+
+    public function test_invalid_tenant_identifiers_are_denied_before_downstream_execution(): void
+    {
+        foreach ([0, -1, 'abc', '1 OR 1=1', ''] as $invalidTenantId) {
+            $request = Request::create('/api/orders', 'GET', ['tenant_id' => 777]);
+            $request->setUserResolver(fn ($guard = null) => (object) [
+                'user_id' => 42,
+                'tenant_id' => $invalidTenantId,
+            ]);
+
+            $downstreamCalled = false;
+            $response = (new TenantMiddleware())->handle($request, function () use (&$downstreamCalled) {
+                $downstreamCalled = true;
+                return response()->json(['allowed' => true]);
+            });
+
+            $this->assertSame(403, $response->getStatusCode());
+            $this->assertFalse($downstreamCalled, 'Invalid tenant context reached protected route');
+        }
+    }
+
+    public function test_query_and_body_cannot_override_authenticated_tenant(): void
+    {
+        $request = Request::create('/api/orders', 'POST', [
+            'tenant_id' => 999,
+            'store_id' => 999,
+        ]);
+        $request->query->set('tenant_id', 888);
+        $request->setUserResolver(fn ($guard = null) => (object) [
+            'user_id' => 42,
+            'tenant_id' => 2,
+        ]);
+
+        $response = (new TenantMiddleware())->handle($request, function () {
+            return response()->json(['resolved_tenant_id' => app('tenant_id')]);
+        });
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(2, $response->getData(true)['resolved_tenant_id']);
+    }
 }
