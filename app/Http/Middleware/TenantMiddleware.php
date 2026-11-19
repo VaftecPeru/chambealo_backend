@@ -9,6 +9,9 @@ class TenantMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
+        // Clear any tenant context left by an earlier request in this process.
+        app()->forgetInstance('tenant_id');
+
         // Never trust a tenant supplied in a query string or request body.
         // Until tenant membership is modeled and verified, deny unresolved contexts.
         $user = $request->user('api') ?? $request->user();
