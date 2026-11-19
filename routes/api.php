@@ -64,7 +64,7 @@ Route::prefix('v1')->group(function () {
 });
 
 // Protected routes (auth required)
-Route::middleware(['auth:api', 'active'])->group(function () {
+Route::middleware(['auth:api', 'active', 'tenant'])->group(function () {
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAllDevices']);
@@ -118,7 +118,7 @@ Route::middleware(['auth:api', 'active'])->group(function () {
 });
 
 // Vendor and admin routes
-Route::middleware(['auth:api', 'active', 'role:vendor,admin'])->group(function () {
+Route::middleware(['auth:api', 'active', 'tenant', 'role:vendor,admin'])->group(function () {
     // Order management
     Route::patch('/orders/{orderId}/status', [OrderController::class, 'updateStatus']);
     Route::post('/products', [ProductController::class, 'store']);
@@ -135,7 +135,7 @@ Route::middleware(['auth:api', 'active', 'role:vendor,admin'])->group(function (
 });
 
 // Admin only routes
-Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
+Route::middleware(['auth:api', 'active', 'tenant', 'role:admin'])->group(function () {
     Route::post('/categories', [CategoryController::class, 'store']);
     Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
     Route::put('/categories/{category}', [CategoryController::class, 'update']);

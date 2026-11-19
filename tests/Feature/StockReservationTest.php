@@ -15,6 +15,9 @@ class StockReservationTest extends TestCase
 
     private function asJwt(User $user): static
     {
+        // Supply an explicit tenant context so stock assertions exercise order validation.
+        // Tenant authorization remains enabled; missing-tenant denial has separate tests.
+        $user->forceFill(['tenant_id' => 1])->save();
         $token = auth('api')->login($user);
 
         return $this->withHeader('Authorization', 'Bearer ' . $token);

@@ -53,7 +53,12 @@ class AuthSecurityTest extends TestCase
     {
         $user = User::factory()->create([
             'status' => 'suspended',
+            'password_hash' => Hash::make('password'),
         ]);
+
+        // Confirm the fixture reaches the suspended-account check rather than
+        // failing earlier because of an invalid password hash.
+        $this->assertTrue(Hash::check('password', $user->password_hash));
 
         $response = $this->postJson('/api/login', [
             'email' => $user->email,

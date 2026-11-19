@@ -15,6 +15,12 @@ class InventoryMovementsC038Test extends TestCase
 
     private function acting(User $user): static
     {
+        // Inventory routes are tenant-protected. Give the test actor an explicit
+        // tenant context; authorization and ownership remain enforced by the API.
+        if ($user->tenant_id === null) {
+            $user->forceFill(['tenant_id' => 1])->save();
+        }
+
         return $this->withHeader('Authorization', 'Bearer ' . auth('api')->login($user));
     }
 

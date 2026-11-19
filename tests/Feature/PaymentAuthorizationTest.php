@@ -28,6 +28,12 @@ class PaymentAuthorizationTest extends TestCase
 
     private function asJwt(User $user): static
     {
+        // Payment authorization tests must reach order ownership checks.
+        // Tenant isolation is covered separately; do not bypass middleware.
+        if ($user->tenant_id === null) {
+            $user->forceFill(['tenant_id' => 1])->save();
+        }
+
         $token = auth('api')->login($user);
 
         return $this->withHeader('Authorization', 'Bearer ' . $token);

@@ -38,14 +38,14 @@ class Kernel extends HttpKernel
         \Illuminate\View\Middleware\ShareErrorsFromSession::class,
         \App\Http\Middleware\VerifyCsrfToken::class,
         \Illuminate\Routing\Middleware\SubstituteBindings::class,
-        \App\Http\Middleware\TenantMiddleware::class, // ← Agrega esta línea al final
+        // Tenant checks belong on authenticated routes, not public API endpoints.
     ],
     
     'api' => [
         // \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
         \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
         \Illuminate\Routing\Middleware\SubstituteBindings::class,
-        \App\Http\Middleware\TenantMiddleware::class, // ← Agrega esta línea al final
+        // Tenant checks belong on authenticated routes, not public API endpoints.
     ],
 ];
 
@@ -70,6 +70,7 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'role' => \App\Http\Middleware\CheckUserRole::class,
         'active' => \App\Http\Middleware\CheckUserStatus::class,
+        'tenant' => \App\Http\Middleware\TenantMiddleware::class,
         'bindings' => \Illuminate\Routing\Middleware\SubstituteBindings::class,
         'https.webhook' => \App\Http\Middleware\EnforceHttpsForWebhooks::class,
         'admin' => \App\Http\Middleware\AdminMiddleware::class,

@@ -25,7 +25,10 @@ class AuthValidationTest extends TestCase
 
     public function test_update_profile_invalid_email_returns_422(): void
     {
+        // Authenticated profile routes require a tenant context. Keep the
+        // fixture authorized so this test reaches the validation layer.
         $user = \App\Models\User::factory()->create();
+        $user->forceFill(['tenant_id' => 1])->save();
         $token = \Tymon\JWTAuth\Facades\JWTAuth::fromUser($user);
 
         $this->withHeader('Authorization', 'Bearer ' . $token)

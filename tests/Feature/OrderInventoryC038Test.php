@@ -15,6 +15,12 @@ class OrderInventoryC038Test extends TestCase
 
     private function asJwt(User $user): static
     {
+        // Stock history tests need an authorized tenant to reach order handling.
+        // Keep authorization checks in dedicated cross-tenant regression tests.
+        if ($user->tenant_id === null) {
+            $user->forceFill(['tenant_id' => 1])->save();
+        }
+
         return $this->withHeader('Authorization', 'Bearer ' . auth('api')->login($user));
     }
 
