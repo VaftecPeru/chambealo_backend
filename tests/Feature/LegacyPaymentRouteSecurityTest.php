@@ -20,6 +20,15 @@ class LegacyPaymentRouteSecurityTest extends TestCase
         $this->assertContains('throttle:30,1', $middleware);
     }
 
+    public function test_unauthenticated_legacy_payment_request_is_rejected_before_processing(): void
+    {
+        // No external payment request is made: auth middleware must reject first.
+        $this->postJson('/api/process-payment', [
+            'amount' => 1,
+            'order_id' => 999999,
+        ])->assertUnauthorized();
+    }
+
     public function test_legacy_payment_endpoint_is_not_available_via_get(): void
     {
         $this->getJson('/api/process-payment')->assertStatus(405);
