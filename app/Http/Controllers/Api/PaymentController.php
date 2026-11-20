@@ -29,7 +29,7 @@ class PaymentController extends Controller
     public function process(Request $request): JsonResponse
     {
         // VAFTEC: Validación obligatoria desde backend
-        $request->validate([
+        $validatedData = $request->validate([
             'transaction_amount' => 'required|numeric|min:0.01',
             'token' => 'required|string',
             'payment_method_id' => 'required|string',
@@ -43,7 +43,6 @@ class PaymentController extends Controller
             SDK::setAccessToken(config('services.mercadopago.access_token'));
 
             // 2. VAFTEC: Obtener datos desde validación, no desde JSON directo
-            $validatedData = $request->validated();
 
             $payment = new Payment();
             
