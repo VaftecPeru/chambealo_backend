@@ -14,6 +14,12 @@ class CatalogStockTest extends TestCase
 
     private function asJwt(User $user): static
     {
+        // Authenticated order routes require a resolved tenant. Keep the test
+        // focused on catalog stock changes rather than failing at middleware.
+        if ($user->tenant_id === null) {
+            $user->forceFill(['tenant_id' => 1])->save();
+        }
+
         $token = auth('api')->login($user);
 
         return $this->withHeader('Authorization', 'Bearer ' . $token);

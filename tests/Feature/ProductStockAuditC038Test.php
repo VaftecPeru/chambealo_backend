@@ -35,6 +35,8 @@ class ProductStockAuditC038Test extends TestCase
             'stock' => 10,
             'status' => 'active',
         ]);
+        // Exercise stock audit behind tenant authorization, without bypassing middleware.
+        $admin->forceFill(['tenant_id' => 1])->save();
         $this->withHeader('Authorization', 'Bearer ' . auth('api')->login($admin));
         return [$admin, $product];
     }

@@ -31,6 +31,11 @@ class OrderStateMachineC036Test extends TestCase
 
     private function asJwt(User $user): static
     {
+        // State transition tests require a valid tenant; cross-tenant denial is tested separately.
+        if ($user->tenant_id === null) {
+            $user->forceFill(['tenant_id' => 1])->save();
+        }
+
         return $this->withHeader('Authorization', 'Bearer ' . auth('api')->login($user));
     }
 
