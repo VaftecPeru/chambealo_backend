@@ -45,7 +45,7 @@ class TenantMiddlewareFailClosedTest extends TestCase
 
     public function test_invalid_tenant_identifiers_are_denied_before_downstream_execution(): void
     {
-        foreach ([0, -1, 'abc', '1 OR 1=1', ''] as $invalidTenantId) {
+        foreach ([0, -1, 'abc', '1 OR 1=1', '', true, false, [], ['id' => 1]] as $invalidTenantId) {
             $request = Request::create('/api/orders', 'GET', ['tenant_id' => 777]);
             $request->setUserResolver(fn ($guard = null) => (object) [
                 'user_id' => 42,
