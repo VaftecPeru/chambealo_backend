@@ -788,4 +788,52 @@ public function test_paypal_conversion_preserves_original_amount(): void
         0.001
     );
 }
+    public function test_same_user_cannot_confirm_payment_from_another_tenant(): void
+    {
+        $user = User::factory()->create();
+        $user->forceFill(['tenant_id' => 2])->save();
+
+        $order = Order::create([
+            'order_id' => 'ORD-CROSS-TENANT-' . uniqid(),
+            'tenant_id' => 1,
+            'user_id' => $user->user_id,
+            'total_amount' => 59.90,
+            'taxes' => 0,
+            'shipping_cost' => 0,
+            'status' => Order::STATUS_PAYMENT_PENDING,
+            'items' => [],
+            'shipping_address' => [],
+            'billing_address' => [],
+            'discount' => 0,
+        ]);
+
+        Payment::create([
+            'order_id' => $order->order_id,
+            'payment_id' => 'PAYPAL-CROSS-TENANT-' . uniqid(),
+            'gateway' => 'paypal',
+            'status' => 'pending',
+            'amount' => '59.90',
+            'currency' => 'USD',
+            'email' => $user->email,
+            'user_id' => $user->user_id,
+            'tenant_id' => 1,
+        ]);
+
+        $payment = Payment::where('order_id', $order->order_id)->firstOrFail();
+
+        Http::preventStrayRequests();
+        Http::fake();
+
+        $this->asJwt($user)->postJson('/api/payment/confirm', [
+            'gateway' => 'paypal',
+            'payment_id' => $payment->payment_id,
+        ])->assertNotFound();
+
+        Http::assertNothingSent();
+        $this->assertDatabaseHas('payments', [
+            'id' => $payment->id,
+            'status' => 'pending',
+        ]);
+    }
+
 }
