@@ -162,7 +162,8 @@ class PaymentController extends Controller
 
         $krAnswer = $request->input('kr-answer');
         $krHash   = $request->input('kr-hash');
-        $webhookId = hash('sha256', $krAnswer . time()); // Generate unique webhook ID
+        // Stable identifier for identical signed deliveries; time-based IDs bypass replay detection.
+        $webhookId = hash('sha256', (string) $krAnswer . ':' . (string) $krHash);
         
         // Log webhook reception
         $this->logWebhookReceived(
