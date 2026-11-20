@@ -453,6 +453,16 @@ class PaymentController extends Controller
                 ], 404);
             }
 
+            // Fail closed before any external gateway call, including for admins.
+            // An authenticated user may only confirm payments in their tenant.
+            $tenantId = app('tenant_id');
+            if ((int) $payment->tenant_id !== (int) $tenantId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pago no encontrado.',
+                ], 404);
+            }
+
             if (!$user->isAdmin()
                 && (int) $payment->user_id !== (int) $user->user_id) {
                 return response()->json([
