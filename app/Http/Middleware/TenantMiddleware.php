@@ -19,7 +19,14 @@ class TenantMiddleware
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $tenantId = filter_var($user->tenant_id ?? null, FILTER_VALIDATE_INT, [
+        $rawTenantId = $user->tenant_id ?? null;
+        // Reject non-scalar and boolean values before integer validation.
+        // PHP's integer filter can otherwise coerce true to tenant 1.
+        if (!is_int($rawTenantId) && !is_string($rawTenantId)) {
+            return response()->json(['message' => 'Tenant access not configured.'], 403);
+        }
+
+        $tenantId = filter_var($rawTenantId, FILTER_VALIDATE_INT, [
             'options' => ['min_range' => 1],
         ]);
 
