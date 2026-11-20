@@ -124,4 +124,24 @@ class TenantMiddlewareFailClosedTest extends TestCase
         $this->assertFalse($downstreamCalled);
         $this->assertFalse(app()->bound('tenant_id'), 'Stale tenant context survived a forbidden request');
     }
+
+    public function test_sequential_authenticated_requests_never_reuse_previous_tenant(): void
+    {
+        $middleware = new TenantMiddleware();
+
+        foreach ([2, 3, 2] as $tenantId) {
+            $request = Request::create('/api/orders', 'GET', ['tenant_id' => 999]);
+            $request->setUserResolver(fn ($guard = null) => (object) [
+                'user_id' => 42,
+                'tenant_id' => $tenantId,
+            ]);
+
+            $response = $middleware->handle($request, fn () => response()->json([
+                'resolved_tenant_id' => app('tenant_id'),
+            ]));
+
+            $this->assertSame(200, $response->getStatusCode());
+            $this->assertSame($tenantId, $response->getData(true)['resolved_tenant_id']);
+        }
+    }
 }
