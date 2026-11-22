@@ -16,7 +16,7 @@ class Controller extends BaseController
      */
     protected function getTenantId()
     {
-        return app('tenant_id');
+        return app()->bound('tenant_id') ? app('tenant_id') : null;
     }
     
     /**
@@ -60,10 +60,11 @@ class Controller extends BaseController
     {
         $tenantId = $this->getTenantId();
         
-        if ($tenantId) {
-            return $query->where('tenant_id', $tenantId);
+        // Fail closed: a missing tenant context must never return unscoped records.
+        if (!$tenantId) {
+            abort(403, 'Tenant context required');
         }
-        
-        return $query;
+
+        return $query->where('tenant_id', $tenantId);
     }
 }
