@@ -16,7 +16,7 @@ class Controller extends BaseController
      */
     protected function getTenantId()
     {
-        return app('tenant_id');
+        return app()->bound('tenant_id') ? app('tenant_id') : null;
     }
     
     /**
