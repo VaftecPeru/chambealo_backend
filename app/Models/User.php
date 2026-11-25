@@ -15,6 +15,7 @@ class User extends Authenticatable implements JWTSubject
     protected $primaryKey = 'user_id';
 
     protected $fillable = [
+        'tenant_id',
         'full_name',
         'email',
         'password_hash',  // ← CAMBIAR: de 'password' a 'password_hash'
@@ -28,6 +29,7 @@ class User extends Authenticatable implements JWTSubject
     ];
 
     protected $casts = [
+        'tenant_id' => 'integer',
         'email_verified_at' => 'datetime',
         'registered_at' => 'datetime',
     ];

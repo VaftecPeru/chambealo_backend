@@ -3,21 +3,24 @@
 namespace App\Http\Middleware;
 
 use Closure;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
 
 class TenantMiddleware
 {
-    public function handle($request, Closure $next)
+    public function handle(Request $request, Closure $next)
     {
-        // Por ahora, usar tenant_id = 1 para pruebas
-        $tenantId = 1;
-        
-        // Inyectar en el contenedor
-        app()->instance('tenant_id', $tenantId);
-        
-        // También agregar al request
-        $request->merge(['tenant_id' => $tenantId]);
-        
+        $user = $request->user() ?? auth('api')->user();
+        $tenantId = $user?->tenant_id !== null ? (int) $user->tenant_id : null;
+
+        app()->forgetInstance('tenant_id');
+        app()->bind('tenant_id', static fn () => $tenantId);
+        $request->attributes->set('tenant_id', $tenantId);
+
         return $next($request);
+    }
+
+    public function terminate($request, $response): void
+    {
+        app()->forgetInstance('tenant_id');
     }
 }
