@@ -13,6 +13,7 @@ class Audit extends Model
     protected $primaryKey = 'audit_id';
 
     protected $fillable = [
+        'tenant_id',
         'entity_type',
         'entity_id',
         'action',
@@ -22,13 +23,16 @@ class Audit extends Model
         'performed_by',
         'ip_address',
         'user_agent',
-        'timestamp'
+        'timestamp',
     ];
 
     // No usamos timestamps automáticos porque tenemos 'timestamp'
     public $timestamps = false;
 
     protected $casts = [
+        'tenant_id' => 'integer',
+        'entity_id' => 'integer',
+        'performed_by' => 'integer',
         'old_values' => 'array',
         'new_values' => 'array',
         'timestamp' => 'datetime',
@@ -37,7 +41,7 @@ class Audit extends Model
     // Relaciones
     public function performer()
     {
-        return $this->belongsTo(User::class, 'performed_by');
+        return $this->belongsTo(User::class, 'performed_by', 'user_id');
     }
 
     // Relación polimórfica para la entidad auditada
@@ -46,27 +50,40 @@ class Audit extends Model
         return $this->morphTo();
     }
 
-    // Scope para acciones específicas
-public function scopeAction(Builder $query, string $action): Builder
-{
-    return $query->where('action', $action);
-}
-
-// Scope para una entidad específica
-public function scopeForEntity(Builder $query, string $entityType, $entityId = null): Builder
-{
-    $query = $query->where('entity_type', $entityType);
-
-    if ($entityId) {
-        $query->where('entity_id', $entityId);
+    public function scopeAction(Builder $query, string $action): Builder
+    {
+        return $query->where('action', $action);
     }
 
-    return $query;
-}
+    public function scopeForEntity(Builder $query, string $entityType, $entityId = null): Builder
+    {
+        $query->where('entity_type', $entityType);
 
-// Scope CORREGIDO para registros recientes
-public function scopeRecent(Builder $query, int $days = 7): Builder
-{
-    return $query->where('timestamp', '>=', now()->subDays($days));
-}
+        if ($entityId !== null) {
+            $query->where('entity_id', (int) $entityId);
+        }
+
+        return $query;
+    }
+
+    public function scopeForTenant(Builder $query, ?int $tenantId): Builder
+    {
+        if ($tenantId === null) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $q) use ($tenantId) {
+            $q->where('tenant_id', $tenantId)->orWhereNull('tenant_id');
+        });
+    }
+
+    public function scopePerformedBy(Builder $query, int $userId): Builder
+    {
+        return $query->where('performed_by', $userId);
+    }
+
+    public function scopeRecent(Builder $query, int $days = 7): Builder
+    {
+        return $query->where('timestamp', '>=', now()->subDays($days));
+    }
 }

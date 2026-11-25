@@ -7,10 +7,14 @@ use App\Http\Requests\ProductRequest;
 use App\Http\Resources\ProductResource;
 use App\Models\Brand;
 use App\Models\Product;
+use App\Services\AuditService;
 use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
+    public function __construct(private readonly AuditService $auditService)
+    {
+    }
     // Listado público: no muestra productos inactivos.
     public function index(Request $request)
     {
@@ -53,6 +57,15 @@ class ProductController extends Controller
         }
 
         $product = Product::create($data);
+        $this->auditService->recordModel(
+            $product,
+            'created',
+            null,
+            $product->toArray(),
+            "Producto '{$product->name}' creado",
+            $request,
+        );
+
         $product->load(['brand', 'category', 'media']);
 
         return response()->json([
@@ -104,6 +117,7 @@ class ProductController extends Controller
                 abort(403, 'No autorizado para modificar este producto.');
             }
 
+            $oldValues = $locked->toArray();
             $before = (int) $locked->stock;
             $after = array_key_exists('stock', $data) ? (int) $data['stock'] : $before;
             $locked->update($data);
@@ -122,6 +136,15 @@ class ProductController extends Controller
                     'reference_id' => (string) $locked->product_id,
                 ]);
             }
+
+            $this->auditService->recordModel(
+                $locked,
+                'updated',
+                $oldValues,
+                $locked->fresh()->toArray(),
+                "Producto '{$locked->name}' actualizado",
+                $request,
+            );
 
             return $locked;
         }, 3);
@@ -157,6 +180,18 @@ class ProductController extends Controller
             throw $e;
         }
 
+        $this->auditService->recordModel(
+            $product,
+            'image_uploaded',
+            null,
+            [
+                'file_url' => $path,
+                'file_type' => $file->getMimeType(),
+            ],
+            "Imagen cargada para producto '{$product->name}'",
+            $request,
+        );
+
         $product->load(['brand', 'category', 'media']);
 
         return response()->json([
@@ -175,7 +210,17 @@ class ProductController extends Controller
             ], 403);
         }
 
+        $oldValues = $product->toArray();
         $product->delete();
+
+        $this->auditService->recordModel(
+            $product,
+            'deleted',
+            $oldValues,
+            null,
+            "Producto '{$product->name}' eliminado",
+            $request,
+        );
 
         return response()->json(['success' => true, 'message' => 'Producto eliminado.']);
     }

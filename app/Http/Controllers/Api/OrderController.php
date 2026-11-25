@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\InventoryMovement;
 use App\Models\Order;
 use App\Models\Product;
+use App\Services\AuditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -13,6 +14,9 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 
 class OrderController extends Controller
 {
+    public function __construct(private readonly AuditService $auditService)
+    {
+    }
     public function index(Request $request)
     {
         $user = $request->user('api') ?? $request->user();
@@ -66,7 +70,7 @@ class OrderController extends Controller
         $user = $request->user('api') ?? $request->user();
         $tenantId = app('tenant_id');
 
-        $order = DB::transaction(function () use ($validated, $user, $tenantId) {
+        $order = DB::transaction(function () use ($validated, $user, $tenantId, $request) {
             $orderItems = [];
             $reservedMovements = [];
             $subtotal = 0;
@@ -172,6 +176,16 @@ class OrderController extends Controller
                 ]);
             }
 
+            $this->auditService->recordModel(
+                $order,
+                'created',
+                null,
+                $order->toArray(),
+                "Pedido {$order->order_id} creado",
+                $request,
+                (int) $user->user_id,
+            );
+
             return $order;
         });
 
@@ -187,7 +201,7 @@ class OrderController extends Controller
         $user = $request->user('api') ?? $request->user();
         $tenantId = app('tenant_id');
 
-        return DB::transaction(function () use ($orderId, $user, $tenantId) {
+        return DB::transaction(function () use ($orderId, $user, $tenantId, $request) {
             // Bloquear primero y validar el estado real dentro de la transacción.
             $order = Order::where('order_id', $orderId)
                 ->where('user_id', $user->user_id)
@@ -262,12 +276,24 @@ class OrderController extends Controller
                 ]);
             }
 
+            $oldValues = $order->toArray();
             $order->markAsCancelled();
+            $fresh = $order->fresh();
+
+            $this->auditService->recordModel(
+                $fresh,
+                'cancelled',
+                $oldValues,
+                $fresh->toArray(),
+                "Pedido {$order->order_id} cancelado",
+                $request,
+                (int) $user->user_id,
+            );
 
             return response()->json([
                 'success' => true,
                 'message' => 'Pedido cancelado correctamente.',
-                'order' => $order->fresh(),
+                'order' => $fresh,
             ]);
         }, 3);
     }
@@ -280,7 +306,7 @@ class OrderController extends Controller
 
         $tenantId = app('tenant_id');
 
-        return DB::transaction(function () use ($orderId, $validated, $tenantId) {
+        return DB::transaction(function () use ($orderId, $validated, $tenantId, $request) {
             // Bloquear y verificar la transición dentro de la misma transacción.
             $order = Order::where('order_id', $orderId)
                 ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
@@ -301,12 +327,24 @@ class OrderController extends Controller
                 ], 422);
             }
 
+            $oldStatus = $order->status;
+            $oldValues = $order->toArray();
             $order->update(['status' => $validated['status']]);
+            $fresh = $order->fresh();
+
+            $this->auditService->recordModel(
+                $fresh,
+                'status_updated',
+                $oldValues,
+                $fresh->toArray(),
+                "Estado de pedido {$order->order_id} actualizado de {$oldStatus} a {$validated['status']}",
+                $request,
+            );
 
             return response()->json([
                 'success' => true,
                 'message' => 'Estado del pedido actualizado correctamente.',
-                'order' => $order->fresh(),
+                'order' => $fresh,
             ]);
         }, 3);
     }

@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\PaymentController as ApiPaymentController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\InventoryMovementController;
+use App\Http\Controllers\Api\AuditController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\PayPalController;
@@ -149,6 +150,12 @@ Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
     // Admin brand management
     Route::get('/admin/brands', [BrandController::class, 'adminIndex']);
     Route::put('/admin/brands/{brand}/status', [BrandController::class, 'updateVisibility']);
+
+    // C-039: Auditoría administrativa
+    Route::get('/admin/audits', [AuditController::class, 'index'])->name('admin.audits.index');
+    Route::get('/admin/audits/{auditId}', [AuditController::class, 'show'])
+        ->whereNumber('auditId')
+        ->name('admin.audits.show');
     
     // Admin payment logs
     Route::prefix('admin/payment-logs')->group(function () {
