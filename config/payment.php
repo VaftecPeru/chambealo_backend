@@ -7,7 +7,7 @@ return [
     'pen_per_usd' => env('PAYPAL_FX_PEN_PER_USD'),
     'source' => env('PAYPAL_FX_SOURCE'),
     'quoted_at' => env('PAYPAL_FX_QUOTED_AT'),
-    'max_age_minutes' => 1440,
+    'max_age_minutes' => env('PAYPAL_ENV', 'sandbox') === 'sandbox' ? 2880 : 1440,
 ],
     'izipay' => [
         'environment' => env('IZIPAY_ENV', 'sandbox'),
