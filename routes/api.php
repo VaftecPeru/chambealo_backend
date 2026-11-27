@@ -136,6 +136,8 @@ Route::middleware(['auth:api', 'active', 'role:vendor,admin'])->group(function (
 
 // Admin only routes
 Route::middleware(['auth:api', 'active', 'role:admin'])->group(function () {
+    // C-026: Listado administrativo de pedidos
+    Route::get('/admin/orders', [OrderController::class, 'adminIndex']);
     Route::post('/categories', [CategoryController::class, 'store']);
     Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
     Route::put('/categories/{category}', [CategoryController::class, 'update']);

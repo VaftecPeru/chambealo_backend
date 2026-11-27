@@ -28,6 +28,20 @@ class OrderController extends Controller
             'orders' => $orders,
         ]);
     }
+    public function adminIndex(Request $request)
+    {
+        $tenantId = app('tenant_id');
+
+        $orders = Order::query()
+            ->where('tenant_id', $tenantId)
+            ->orderByDesc('created_at')
+            ->paginate(20);
+
+        return response()->json([
+            'success' => true,
+            'orders' => $orders,
+        ]);
+    }
 
     public function show(Request $request, string $orderId)
     {
