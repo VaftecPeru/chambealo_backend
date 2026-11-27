@@ -1,0 +1,47 @@
+name: C-112 E2E Staging & Smoke Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'URL base de la API de staging (ej. https://staging-api.chambealo.pe/api)'
+        required: true
+        type: string
+      frontend_base_url:
+        description: 'URL base del frontend de staging (opcional)'
+        required: false
+        default: ''
+        type: string
+      pr_ref:
+        description: 'Referencia del PR o release (ej. PR#12)'
+        required: false
+        default: 'staging-manual'
+        type: string
+
+jobs:
+  e2e-c112:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run C-112 E2E Suite against Staging
+        env:
+          API_BASE_URL: ${{ inputs.api_base_url }}
+          FRONTEND_BASE_URL: ${{ inputs.frontend_base_url }}
+          PR_REF: ${{ inputs.pr_ref }}
+          GIT_SHA: ${{ github.sha }}
+          E2E_REPORT_DIR: e2e-reports
+        run: node scripts/e2e/run_c112_e2e.mjs
+
+      - name: Upload E2E Reports Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c112-e2e-report-${{ github.sha }}
+          path: e2e-reports/
