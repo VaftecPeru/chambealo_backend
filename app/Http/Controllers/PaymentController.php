@@ -81,7 +81,7 @@ class PaymentController extends Controller
 
         $tenantId = app('tenant_id');
 
-        $orderQuery = Order::whereKey($payment->order_id)
+        $orderQuery = Order::where('order_id', $payment->order_id)
             ->when(
                 $tenantId,
                 fn ($query) => $query->where('tenant_id', $tenantId)
@@ -101,6 +101,7 @@ class PaymentController extends Controller
         return response()->json([
             'success' => true,
             'status' => $payment->status,
+            'order_number' => $payment->order_id,
         ]);
     }
 
@@ -531,12 +532,14 @@ class PaymentController extends Controller
 
                 $status = 'completed';
 
+                
                 // Respuesta idempotente para confirmaciones repetidas.
                 if ($payment->status === 'completed') {
                     return response()->json([
                         'success' => true,
                         'status' => 'completed',
                         'message' => 'Pago ya confirmado.',
+                        'order_number' => $payment->order_id,
                     ]);
                 }
             } else {
@@ -563,10 +566,12 @@ class PaymentController extends Controller
                 'status' => $status,
             ]);
 
+            
             return response()->json([
                 'success' => true,
                 'status' => $status,
                 'message' => "Payment {$status}",
+                'order_number' => $payment->order_id,
             ]);
         } catch (InvalidArgumentException $e) {
             Log::warning('Invalid payment verification', [
